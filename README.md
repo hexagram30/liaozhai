@@ -24,14 +24,17 @@ That framing — a studio where strange tales accumulate from many sources — i
 
 ## Architecture (intent)
 
-The detailed architectural reasoning will live in `docs/architecture.md`. In brief:
+The architectural overview and foundational decisions live in [`docs/design/01-draft/`](./docs/design/01-draft/). Start with [`0001-architecture-overview.md`](./docs/design/01-draft/0001-architecture-overview.md) and follow the cross-references into individual ADRs. In brief:
 
-- **Server core:** Rust, drawing on PennMUSH/TinyMUSH for the command model, attribute storage, and the soft-code extensibility tradition.
-- **World model:** ECS composition (Bevy) layered over MUSH-style attribute-keyed objects.
-- **Builder/admin client:** ratatui terminal interface.
-- **Text generation:** salience-based procedural assembly, with named narrative-technique components — 草蛇灰線 (*cǎoshé huīxiàn*, "grass-snake ash-line" foreshadowing), 烘雲托月 (*hōngyún tuōyuè*, "painting clouds to set off the moon"), and others — as first-class types.
+- **Server core:** Rust, drawing inspiration (not source compatibility) from PennMUSH/TinyMUSH/LambdaMOO/Evennia.
+- **World model:** `bevy_ecs` standalone (not the full Bevy engine) layered as MUSH-shaped surface over ECS substrate.
+- **Multi-world hosting:** one `bevy_ecs::World` per game-world; accounts span worlds, in-world identity (Avatar) is per-world.
+- **Concurrency:** tokio async + actor-model — connections are tasks, worlds are tasks, channels carry everything across boundaries.
+- **Soft-code:** Lykn — typed, immutable, S-expression Lisp-flavored language with Rust toolchain. AST walking interpreter v0.4, bytecode VM later.
+- **Builder/admin client:** ratatui TUI (separate process; full Bevy + bevy_ratatui).
+- **Text generation:** salience-based procedural assembly with named *píngdiǎn* technique components — 草蛇灰線 (*cǎoshé huīxiàn*, foreshadowing), 烘雲托月 (*hōngyún tuōyuè*, peripheral description), and others — as first-class types. v0.5+ work.
 
-Everything above is directional. Concrete decisions are still ahead.
+Everything above is directional. Concrete decisions live in the ADRs.
 
 ## Lineage
 
