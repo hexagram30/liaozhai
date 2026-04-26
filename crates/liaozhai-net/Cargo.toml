@@ -11,6 +11,9 @@ liaozhai-core.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 bytes.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+futures-util.workspace = true
 
 [lints]
 workspace = true

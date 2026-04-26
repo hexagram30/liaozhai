@@ -20,10 +20,6 @@ This index is automatically generated. Do not edit manually.
 
 ## Documents by State
 
-### Active
-
-- [0011 - v0.1 Implementation Plan](05-active/0011-v0.1-implementation-plan.md)
-
 ### Draft
 
 - [0010 - Graph topology and query architecture](01-draft/0010-graph-topology-and-query-architecture.md)
@@ -35,6 +31,10 @@ This index is automatically generated. Do not edit manually.
 - [0004 - Multi-world server: one `bevy_ecs::World` per game-world](01-draft/0004-multi-world-server-one-bevy-ecsworld-per-game-world.md)
 - [0003 - `bevy_ecs` as the core data model](01-draft/0003-bevy-ecs-as-the-core-data-model.md)
 - [0002 - Architecture Overview](01-draft/0002-architecture-overview.md)
+
+### Active
+
+- [0011 - v0.1 Implementation Plan](05-active/0011-v0.1-implementation-plan.md)
 
 ### Final
 

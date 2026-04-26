@@ -26,6 +26,10 @@ pub enum Error {
     /// A world registry error occurred.
     #[error("world error: {0}")]
     World(String),
+
+    /// A protocol-level error from the telnet codec.
+    #[error("codec error: {0}")]
+    Codec(String),
 }
 
 /// Convenience alias used throughout the workspace libraries.
@@ -40,6 +44,12 @@ mod tests {
     fn error_display_formatting() {
         let e = Error::Config("missing field".into());
         assert_eq!(e.to_string(), "configuration error: missing field");
+    }
+
+    #[test]
+    fn codec_error_display() {
+        let e = Error::Codec("line too long".into());
+        assert_eq!(e.to_string(), "codec error: line too long");
     }
 
     #[test]

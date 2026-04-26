@@ -20,6 +20,8 @@ clap               = { version = "4", features = ["derive"] }
 thiserror          = "2"
 anyhow             = "1"
 bytes              = "1"
+tokio-util         = { version = "0.7", features = ["codec"] }
+futures-util       = "0.3"
 uuid               = { version = "1", features = ["v4", "serde"] }
 rusqlite           = { version = "0.39", features = ["bundled"] }
 argon2             = "0.5"
