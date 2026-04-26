@@ -91,7 +91,7 @@ Per ADR-0003, the **server-side crates** (`liaozhai-world`, `liaozhai-server`, e
 
 ## Versioning and publishing
 
-The umbrella `liaozhai` crate is the published crate, currently at 0.0.1. Internal crates are unpublished workspace members initially. They may graduate to published crates as the project matures (especially `liaozhai-world` and `liaozhai-script` if reuse outside MUX becomes plausible).
+The umbrella `liaozhai` crate is the published crate, currently at 0.1.0. Internal crates are unpublished workspace members initially. They may graduate to published crates as the project matures (especially `liaozhai-world` and `liaozhai-script` if reuse outside MUX becomes plausible).
 
 Workspace-level `Cargo.toml` defines `[workspace.package]` with shared `version`, `edition`, `license`, `description`. Member crates inherit via `version.workspace = true`.
 

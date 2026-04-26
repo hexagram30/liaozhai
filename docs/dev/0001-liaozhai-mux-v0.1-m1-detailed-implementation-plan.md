@@ -75,7 +75,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "A Rust-based multi-user exegesis for procedural literary fiction and world-building, in the PennMUSH/TinyMUSH lineage"
