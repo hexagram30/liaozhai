@@ -83,6 +83,6 @@ The deliberately limited cross-world facilities are:
 
 ## Related
 
-- [0001 — Architecture overview](./0001-architecture-overview.md)
-- [0002 — `bevy_ecs` as core data model](./0002-bevy-ecs-data-model.md)
-- [0004 — Tokio + actor-model concurrency](./0004-tokio-actor-concurrency.md) (each world's tick is an actor)
+- ADR-0002 — Architecture Overview
+- ADR-0003 — `bevy_ecs` as the core data model
+- ADR-0005 — Tokio + actor-model concurrency (each world's tick is an actor)

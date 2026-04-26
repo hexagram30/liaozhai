@@ -1,0 +1,18 @@
+[package]
+name = "liaozhai-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared types, IDs, error enum, and constants for Liaozhai MUX"
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+uuid.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true

@@ -38,7 +38,7 @@ The Lykn option is unusual. It's a language Duncan owns, not a third-party depen
 
 Three resonances make Lykn structurally aligned with Liaozhai MUX, not just convenient.
 
-**The `cell` pun.** Lykn's mutation primitive is `cell`. Liaozhai MUX's primary spatial unit is **Cell** (ADR-0005). A MUX Cell *is* a place. A Lykn cell *is* how state changes. Soft-code authored in Lykn manipulates MUX Cells via Lykn cells. The terminology compresses cleanly. This isn't a stretch — both terms emerged independently and they align.
+**The `cell` pun.** Lykn's mutation primitive is `cell`. Liaozhai MUX's primary spatial unit is **Cell** (ADR-0006). A MUX Cell *is* a place. A Lykn cell *is* how state changes. Soft-code authored in Lykn manipulates MUX Cells via Lykn cells. The terminology compresses cleanly. This isn't a stretch — both terms emerged independently and they align.
 
 **S-expressions as exegetical trees.** The *píngdiǎn* commentary tradition that animates the project (草蛇灰線 inside 烘雲托月 inside the narrative arc) treats narrative as a tree of nested techniques. S-expressions are tree structures. Lisp is the language form that already understands what literary exegesis is *doing*. Steel or Rhai would also work; Lykn is structurally aligned with the project's intellectual content.
 
@@ -50,9 +50,9 @@ Beyond the resonances, the practical advantages: Duncan owns the language and ca
 
 **Liaozhai MUX adopts Lykn as the soft-code language.**
 
-The first cut of soft-code support (planned for v0.4 — see ADR-0001's roadmap) ships as a **tree-walking interpreter in Rust** that consumes Lykn's AST after macro expansion to kernel forms. The interpreter is intentionally simple. Performance demands are low: sub-100 ms response to player actions is luxurious, and most soft-code runs in response to discrete events, not in hot loops.
+The first cut of soft-code support (planned for v0.4 — see ADR-0002's roadmap) ships as a **tree-walking interpreter in Rust** that consumes Lykn's AST after macro expansion to kernel forms. The interpreter is intentionally simple. Performance demands are low: sub-100 ms response to player actions is luxurious, and most soft-code runs in response to discrete events, not in hot loops.
 
-The MUX-side Lykn integration ships as its own crate (likely `liaozhai-script` or `liaozhai-lykn` — see ADR-0008). It exposes:
+The MUX-side Lykn integration ships as its own crate (likely `liaozhai-script` or `liaozhai-lykn` — see ADR-0009). It exposes:
 
 - A function to compile a Lykn source file or AST into an interpretable representation.
 - A function to evaluate that representation against a sandboxed environment, with hooks into the world's ECS state.
@@ -99,12 +99,11 @@ Anticipated MUX-side work:
 
 - **Steel (Rust-native Scheme)** — was the alternative-universe answer. Lisp-flavored, mature embedded story, no MUX-side runtime work needed. Rejected because the Lykn resonances (cell pun, project unity, macro alignment) are real and Steel offers none of them. Steel remains the fallback if Lykn integration encounters something unworkable.
 - **Lua via mlua** — most ergonomic third-party option. Rejected because Lua isn't a Lisp, and the project's literary-exegetical framing wants a Lisp.
-- **MUSHcode** — rejected by ADR-0006 (no source compatibility). Even if compatibility were a goal, MUSHcode is a poor language for new authoring.
+- **MUSHcode** — rejected by ADR-0007 (no source compatibility). Even if compatibility were a goal, MUSHcode is a poor language for new authoring.
 - **Embedded JS (boa, QuickJS, deno_core)** — would let us reuse Lykn's existing JS compilation target unchanged. Rejected because the runtime weight, FFI complexity, and sandboxing difficulty are too high for the value.
 
 ## Related
 
-- [0001 — Architecture overview](./0001-architecture-overview.md) (soft-code section)
-- [0005 — Cells as primary spatial unit](./0005-cells-as-spatial-unit.md) (the `cell` pun)
-- [0006 — Inspired by, not bound by, prior MUSHes](./0006-inspired-by-not-bound-by.md) (why not MUSHcode)
-- *Future ADR-0009* — Lykn embedding strategy (when v0.4 work begins)
+- ADR-0002 — Architecture Overview (soft-code section)
+- ADR-0006 — "Cells" as the primary spatial unit (the `cell` pun)
+- ADR-0007 — Inspired by, not bound by, prior MUSH/MUD systems (why not MUSHcode)

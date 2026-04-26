@@ -1,0 +1,17 @@
+# Liaozhai MUX — example configuration file.
+# Copy to liaozhai.toml and adjust as needed.
+# All values shown are the compiled-in defaults.
+
+[server]
+bind_address = "127.0.0.1"
+port = 4444
+max_connections = 100
+
+[auth]
+db_path = "./data/accounts.db"
+
+[worlds]
+registry_path = "./data/worlds.toml"
+
+[logging]
+default_filter = "info"

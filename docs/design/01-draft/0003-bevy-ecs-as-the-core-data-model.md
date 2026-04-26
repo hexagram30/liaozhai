@@ -30,7 +30,7 @@ The question is which ECS implementation, used how. The Rust ECS landscape inclu
 - **`legion`** — was a contender; effectively superseded by Bevy ECS in the Rust ecosystem.
 - **`specs`** — older, less actively developed.
 
-For the **server**, we need a fast, composable ECS without the rendering/audio/input apparatus of a full game engine. For the **TUI builder client** (a separate process — see ADR-0008), we want full Bevy because `bevy_ratatui` integrates cleanly and the Bevy schedule model fits a TUI's update loop.
+For the **server**, we need a fast, composable ECS without the rendering/audio/input apparatus of a full game engine. For the **TUI builder client** (a separate process — see ADR-0009), we want full Bevy because `bevy_ratatui` integrates cleanly and the Bevy schedule model fits a TUI's update loop.
 
 ## Decision
 
@@ -38,7 +38,7 @@ The Liaozhai MUX **server** uses `bevy_ecs` as a standalone dependency — not t
 
 The Liaozhai MUX **builder client** (a separate binary) uses full Bevy plus `bevy_ratatui` for its TUI.
 
-Both share component definitions through a common crate (see ADR-0008), so a `Cell`, `Name`, or `Aspect` defined once is usable in either context.
+Both share component definitions through a common crate (see ADR-0009), so a `Cell`, `Name`, or `Aspect` defined once is usable in either context.
 
 ## Consequences
 
@@ -67,6 +67,6 @@ Both share component definitions through a common crate (see ADR-0008), so a `Ce
 
 ## Related
 
-- [0001 — Architecture overview](./0001-architecture-overview.md)
-- [0003 — Multi-world server](./0003-multi-world-server.md) (one `bevy_ecs::World` per game-world)
-- [0008 — Workspace crate layout](./0008-workspace-crate-layout.md)
+- ADR-0002 — Architecture Overview
+- ADR-0004 — Multi-world server: one `bevy_ecs::World` per game-world
+- ADR-0009 — Workspace crate layout

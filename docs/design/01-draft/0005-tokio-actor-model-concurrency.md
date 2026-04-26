@@ -87,5 +87,5 @@ client connects
 
 ## Related
 
-- [0001 — Architecture overview](./0001-architecture-overview.md)
-- [0003 — Multi-world server](./0003-multi-world-server.md) (each world is an actor under this scheme)
+- ADR-0002 — Architecture Overview
+- ADR-0004 — Multi-world server: one `bevy_ecs::World` per game-world (each world is an actor under this scheme)

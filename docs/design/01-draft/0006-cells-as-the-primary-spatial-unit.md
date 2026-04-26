@@ -24,9 +24,9 @@ The MUD/MUSH tradition has a single dominant term for "the place an entity is in
 
 The term is also constraining. A "room" connotes architecture: walls, ceiling, doors. It strains when the space is a forest clearing, a stretch of road, the surface of a pond, a moment of weather, a stanza of a poem, a dream. Existing MUSHes accept the strain ("you wouldn't *call* it a room, but it's a room") because consistency with prior tooling matters more than vocabulary precision.
 
-Liaozhai MUX is unconstrained by prior tooling (see ADR-0006). It's also a project that explicitly wants to support spaces that are not rooms — the *píngdiǎn* commentary tradition treats narrative as a tree of nested techniques, some of which are spatial in only the most metaphorical sense, and the project's eventual generative layer should be able to talk about a "moment of dusk in the studio" as a place an Avatar can be.
+Liaozhai MUX is unconstrained by prior tooling (see ADR-0007). It's also a project that explicitly wants to support spaces that are not rooms — the *píngdiǎn* commentary tradition treats narrative as a tree of nested techniques, some of which are spatial in only the most metaphorical sense, and the project's eventual generative layer should be able to talk about a "moment of dusk in the studio" as a place an Avatar can be.
 
-A second consideration: Lykn — the project's chosen soft-code language (ADR-0007) — already uses **`cell`** as its mutation primitive. A Lykn `cell` is a place where state can change. Naming the project's spatial primitive **Cell** creates a deliberate pun: in MUX, a Cell is a place; in Lykn, a cell is a place state changes; soft-code authored in Lykn manipulates MUX Cells via Lykn cells. The terminology compresses cleanly and the resonance is genuine, not forced.
+A second consideration: Lykn — the project's chosen soft-code language (ADR-0008) — already uses **`cell`** as its mutation primitive. A Lykn `cell` is a place where state can change. Naming the project's spatial primitive **Cell** creates a deliberate pun: in MUX, a Cell is a place; in Lykn, a cell is a place state changes; soft-code authored in Lykn manipulates MUX Cells via Lykn cells. The terminology compresses cleanly and the resonance is genuine, not forced.
 
 ## Decision
 
@@ -70,5 +70,5 @@ To keep the disambiguation tractable:
 
 ## Related
 
-- [0001 — Architecture overview](./0001-architecture-overview.md) (Cell concept introduced)
-- [0007 — Lykn as soft-code language](./0007-lykn-soft-code-language.md) (Lykn `cell` primitive)
+- ADR-0002 — Architecture Overview (Cell concept introduced)
+- ADR-0008 — Lykn as the soft-code language (Lykn `cell` primitive)

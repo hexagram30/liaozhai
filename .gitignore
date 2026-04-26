@@ -22,3 +22,9 @@ target
 .claude
 /assets/ai
 workbench
+
+# Runtime data
+data/
+
+# Local config (example is liaozhai.example.toml)
+liaozhai.toml

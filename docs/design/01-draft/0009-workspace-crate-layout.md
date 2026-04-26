@@ -85,7 +85,7 @@ Later additions (`liaozhai-script`, `liaozhai-text`, `liaozhai-pingdian`, `liaoz
 
 ## Dependencies and the bevy_ecs vs bevy split
 
-Per ADR-0002, the **server-side crates** (`liaozhai-world`, `liaozhai-server`, etc.) depend on `bevy_ecs` only — not the full `bevy` engine. The builder client (`liaozhai-build`, when it lands) depends on full `bevy` plus `bevy_ratatui`.
+Per ADR-0003, the **server-side crates** (`liaozhai-world`, `liaozhai-server`, etc.) depend on `bevy_ecs` only — not the full `bevy` engine. The builder client (`liaozhai-build`, when it lands) depends on full `bevy` plus `bevy_ratatui`.
 
 `liaozhai-world` is the boundary crate: its component definitions must compile under both contexts. In practice this is trivial — components are plain Rust structs/enums with `bevy_ecs::Component` derives — but it's a constraint to keep in mind when adding component types.
 
@@ -118,6 +118,6 @@ Workspace-level `Cargo.toml` defines `[workspace.package]` with shared `version`
 
 ## Related
 
-- [0001 — Architecture overview](./0001-architecture-overview.md) (system layers)
-- [0002 — `bevy_ecs` (not full Bevy) as data model](./0002-bevy-ecs-data-model.md) (informs the server vs client split)
-- [0007 — Lykn as soft-code language](./0007-lykn-soft-code-language.md) (`liaozhai-script` crate)
+- ADR-0002 — Architecture Overview (system layers)
+- ADR-0003 — `bevy_ecs` as the core data model (informs the server vs client split)
+- ADR-0008 — Lykn as the soft-code language (`liaozhai-script` crate)

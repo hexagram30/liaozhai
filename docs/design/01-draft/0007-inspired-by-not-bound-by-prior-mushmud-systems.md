@@ -35,11 +35,11 @@ Liaozhai MUX is going somewhere the prior tradition didn't aim. The procedural-n
 What we **do** preserve from the lineage:
 
 - The **builder culture** — the idea that worlds grow through live, in-situ construction by trusted users, not through compile-redeploy cycles.
-- The **soft-code tradition** — that game logic can be authored without restarting the server, and that authoring is a separate discipline from engine development. Implemented via Lykn rather than MUSHcode (see ADR-0007).
+- The **soft-code tradition** — that game logic can be authored without restarting the server, and that authoring is a separate discipline from engine development. Implemented via Lykn rather than MUSHcode (see ADR-0008).
 - The **attribute model conceptually** — entities carry arbitrary named data accessible to soft-code. Implemented as ECS components and Lykn-accessible attributes rather than MUSHcode's string-keyed map.
 - The **lock pattern** — predicate-based access control on actions, attributes, and entry. Implemented as Lykn expressions rather than MUSHcode lock-language.
-- The **room/exit graph topology** — places connected by named transitions. Implemented as Cells and Exits with the graph stored in `petgraph::StableGraph` (see ADR-0001 for the data model).
-- The **separation of templates from instances** — designed content (Cell archetypes, Thing blueprints) versus runtime state (who's where, what's on fire). Implemented per ADR-0001's persistence section.
+- The **room/exit graph topology** — places connected by named transitions. Implemented as Cells and Exits with the graph stored in `petgraph::StableGraph` (see ADR-0002 for the data model).
+- The **separation of templates from instances** — designed content (Cell archetypes, Thing blueprints) versus runtime state (who's where, what's on fire). Implemented per ADR-0002's persistence section.
 
 What we **do not** preserve:
 
@@ -75,5 +75,5 @@ To make the lineage intelligible to people arriving from existing MUSHes, the do
 
 ## Related
 
-- [0001 — Architecture overview](./0001-architecture-overview.md)
-- [0007 — Lykn as soft-code language](./0007-lykn-soft-code-language.md) (the most consequential break from the lineage)
+- ADR-0002 — Architecture Overview
+- ADR-0008 — Lykn as the soft-code language (the most consequential break from the lineage)

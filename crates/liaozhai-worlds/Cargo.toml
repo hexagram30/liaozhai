@@ -1,13 +1,15 @@
 [package]
-name = "liaozhai"
+name = "liaozhai-worlds"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description.workspace = true
+description = "World registry and world metadata for Liaozhai MUX"
 rust-version.workspace = true
 
 [dependencies]
 liaozhai-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

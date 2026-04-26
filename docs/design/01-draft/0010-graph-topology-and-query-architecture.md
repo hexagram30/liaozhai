@@ -293,9 +293,9 @@ Worth flagging for implementation:
 
 ## Related
 
-- [0002 — Architecture overview](./0002-architecture-overview.md) (mentions petgraph; this ADR resolves the underspecification)
-- [0003 — `bevy_ecs` as core data model](./0003-bevy-ecs-as-the-core-data-model.md) (the Bevy 0.16 relationship system is load-bearing here)
-- [0004 — Multi-world server](./0004-multi-world-server-one-bevy-ecsworld-per-game-world.md) (each world has its own `WorldGraph`)
-- [0006 — Cells as primary spatial unit](./0006-cells-as-the-primary-spatial-unit.md) (Cells are the graph nodes)
-- [0008 — Lykn as soft-code language](./0008-lykn-as-the-soft-code-language.md) (the Lykn primitives section commits to specific surface forms)
-- [0010 — v0.1 implementation plan](./0010-v0.1-implementation-plan.md) (v0.1 doesn't use the graph; this ADR is preparation for v0.2/v0.3)
+- ADR-0002 — Architecture Overview (mentions petgraph; this ADR resolves the underspecification)
+- ADR-0003 — `bevy_ecs` as the core data model (the Bevy 0.16 relationship system is load-bearing here)
+- ADR-0004 — Multi-world server: one `bevy_ecs::World` per game-world (each world has its own `WorldGraph`)
+- ADR-0006 — "Cells" as the primary spatial unit (Cells are the graph nodes)
+- ADR-0008 — Lykn as the soft-code language (the Lykn primitives section commits to specific surface forms)
+- ADR-0011 — v0.1 Implementation Plan (v0.1 doesn't use the graph; this ADR is preparation for v0.2/v0.3)

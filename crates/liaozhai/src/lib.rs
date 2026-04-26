@@ -1,14 +1,7 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Liaozhai MUX — umbrella crate.
+//!
+//! Re-exports the public API from workspace crates for convenient access.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use liaozhai_core::constants;
+pub use liaozhai_core::error;
+pub use liaozhai_core::id;
