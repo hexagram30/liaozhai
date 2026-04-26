@@ -318,7 +318,9 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "futures-util",
+ "liaozhai-auth",
  "liaozhai-core",
+ "liaozhai-worlds",
  "thiserror",
  "tokio",
  "tokio-util",

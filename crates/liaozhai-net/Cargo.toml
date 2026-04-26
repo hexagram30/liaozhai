@@ -8,6 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 liaozhai-core.workspace = true
+liaozhai-auth.workspace = true
+liaozhai-worlds.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 bytes.workspace = true

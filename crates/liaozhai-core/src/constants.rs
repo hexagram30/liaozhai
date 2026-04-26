@@ -40,6 +40,39 @@ pub const BUFFER_OVERFLOW_MSG: &str = "Buffer overflow; disconnecting.\r\n";
 /// Goodbye message sent on session-terminating command.
 pub const GOODBYE_MSG: &str = "Until the next strange tale.\r\n";
 
+/// Prompt shown when requesting the client's username.
+pub const USERNAME_PROMPT: &str = "Username: ";
+
+/// Prompt shown when requesting the client's password.
+pub const PASSWORD_PROMPT: &str = "Password: ";
+
+/// Header line above the world list.
+pub const WORLDS_HEADER: &str = "Available worlds:";
+
+/// Error message for empty username input.
+pub const EMPTY_USERNAME_MSG: &str = "Username cannot be empty.\r\n";
+
+/// Error message for empty password input.
+pub const EMPTY_PASSWORD_MSG: &str = "Password cannot be empty.\r\n";
+
+/// Error message for non-numeric world selection input.
+pub const WORLD_SELECTION_NON_NUMERIC_MSG: &str = "Please enter a number.\r\n";
+
+/// Error message template for out-of-range world selection.
+/// Replace `{n}` with the registry size at format time.
+pub const WORLD_SELECTION_OUT_OF_RANGE_MSG: &str = "Please enter a number between 1 and {n}.\r\n";
+
+/// Welcome message template. Replace `{username}` at format time.
+pub const WELCOME_TEMPLATE: &str = "Welcome, {username}.\r\n\r\n";
+
+/// Placeholder message template for world selection in v0.1.
+/// Replace `{world}` with the world name at format time.
+pub const WORLD_SELECTED_TEMPLATE: &str =
+    "In v0.1, you would now be in {world}. Disconnecting.\r\n";
+
+/// World selection prompt template. Replace `{n}` with the registry size.
+pub const WORLD_SELECT_PROMPT_TEMPLATE: &str = "Select a world (1-{n}, or 'quit'): ";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,6 +95,24 @@ mod tests {
     #[test]
     fn max_buffer_size_is_10mb() {
         assert_eq!(MAX_BUFFER_SIZE, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    fn username_prompt_is_non_empty() {
+        assert!(!USERNAME_PROMPT.is_empty());
+    }
+
+    #[test]
+    fn password_prompt_is_non_empty() {
+        assert!(!PASSWORD_PROMPT.is_empty());
+    }
+
+    #[test]
+    fn templates_contain_placeholders() {
+        assert!(WELCOME_TEMPLATE.contains("{username}"));
+        assert!(WORLD_SELECTED_TEMPLATE.contains("{world}"));
+        assert!(WORLD_SELECT_PROMPT_TEMPLATE.contains("{n}"));
+        assert!(WORLD_SELECTION_OUT_OF_RANGE_MSG.contains("{n}"));
     }
 
     #[test]

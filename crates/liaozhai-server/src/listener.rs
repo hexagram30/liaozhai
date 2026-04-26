@@ -1,7 +1,10 @@
 //! TCP listener and connection acceptance loop.
 
+use std::sync::Arc;
+
 use crate::config::AppConfig;
 use anyhow::{Context, Result};
+use liaozhai_worlds::registry::WorldRegistry;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
@@ -19,13 +22,18 @@ pub async fn run(cfg: &AppConfig) -> Result<()> {
 
     info!(%addr, "listening for connections");
 
+    // TODO(M5): replace with TOML-loaded registry from cfg.worlds.registry_path.
+    let registry = Arc::new(WorldRegistry::placeholder());
+    info!(world_count = registry.len(), "world registry loaded");
+
     // TODO(M6): enforce cfg.server.max_connections via a tokio::sync::Semaphore.
-    // Acquire a permit before tokio::spawn; release on connection-task completion.
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
+                let reg = registry.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = liaozhai_net::connection::handle_connection(stream, peer).await
+                    if let Err(e) =
+                        liaozhai_net::connection::handle_connection(stream, peer, reg).await
                     {
                         error!(%peer, error = %e, "connection error");
                     }
