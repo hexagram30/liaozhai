@@ -8,6 +8,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AccountId(Uuid);
 
+#[expect(clippy::new_without_default)]
 impl AccountId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
@@ -22,12 +23,6 @@ impl AccountId {
     }
 }
 
-impl Default for AccountId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl fmt::Display for AccountId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -38,6 +33,7 @@ impl fmt::Display for AccountId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WorldId(Uuid);
 
+#[expect(clippy::new_without_default)]
 impl WorldId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
@@ -52,12 +48,6 @@ impl WorldId {
     }
 }
 
-impl Default for WorldId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl fmt::Display for WorldId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -68,6 +58,7 @@ impl fmt::Display for WorldId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ConnectionId(Uuid);
 
+#[expect(clippy::new_without_default)]
 impl ConnectionId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
@@ -79,12 +70,6 @@ impl ConnectionId {
 
     pub fn uuid(self) -> Uuid {
         self.0
-    }
-}
-
-impl Default for ConnectionId {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

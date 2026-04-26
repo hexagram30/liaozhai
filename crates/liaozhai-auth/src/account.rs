@@ -12,10 +12,10 @@ pub struct Account {
 }
 
 impl Account {
-    pub fn new(username: String) -> Self {
+    pub fn new(username: impl Into<String>) -> Self {
         Self {
             id: AccountId::new(),
-            username,
+            username: username.into(),
         }
     }
 
@@ -34,8 +34,9 @@ mod tests {
 
     #[test]
     fn account_getters() {
-        let acct = Account::new("alice".into());
+        let acct = Account::new("alice");
         assert_eq!(acct.username(), "alice");
-        let _ = acct.id(); // just verify it doesn't panic
+        // id() is stable across calls (idempotent getter, not a fresh random per call).
+        assert_eq!(acct.id(), acct.id());
     }
 }

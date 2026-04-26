@@ -81,6 +81,13 @@ impl Default for LoggingConfig {
     }
 }
 
+/// CLI overrides applied on top of the config file.
+#[derive(Debug, Default)]
+pub struct Overrides {
+    pub port: Option<u16>,
+    pub bind_address: Option<String>,
+}
+
 /// Load configuration from an optional TOML file, with CLI overrides applied.
 ///
 /// Precedence: CLI flags > TOML file > compiled defaults.
@@ -88,11 +95,7 @@ impl Default for LoggingConfig {
 /// # Errors
 ///
 /// Returns an error if the config file exists but cannot be read or parsed.
-pub fn load(
-    config_path: Option<&Path>,
-    port_override: Option<u16>,
-    bind_override: Option<String>,
-) -> Result<AppConfig> {
+pub fn load(config_path: Option<&Path>, overrides: Overrides) -> Result<AppConfig> {
     let mut cfg = match config_path {
         Some(path) => {
             let contents = std::fs::read_to_string(path)
@@ -103,10 +106,10 @@ pub fn load(
         None => AppConfig::default(),
     };
 
-    if let Some(port) = port_override {
+    if let Some(port) = overrides.port {
         cfg.server.port = port;
     }
-    if let Some(bind) = bind_override {
+    if let Some(bind) = overrides.bind_address {
         cfg.server.bind_address = bind;
     }
 
@@ -122,6 +125,8 @@ pub fn init_tracing(logging: &LoggingConfig) {
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
+        // Module path on every line. Useful during development; consider
+        // false in production if logs feel cluttered.
         .with_target(true)
         .init();
 }
@@ -141,19 +146,33 @@ mod tests {
 
     #[test]
     fn load_without_file_returns_defaults() {
-        let cfg = load(None, None, None).unwrap();
+        let cfg = load(None, Overrides::default()).unwrap();
         assert_eq!(cfg.server.port, constants::DEFAULT_PORT);
     }
 
     #[test]
     fn cli_port_override() {
-        let cfg = load(None, Some(5555), None).unwrap();
+        let cfg = load(
+            None,
+            Overrides {
+                port: Some(5555),
+                ..Overrides::default()
+            },
+        )
+        .unwrap();
         assert_eq!(cfg.server.port, 5555);
     }
 
     #[test]
     fn cli_bind_override() {
-        let cfg = load(None, None, Some("0.0.0.0".into())).unwrap();
+        let cfg = load(
+            None,
+            Overrides {
+                bind_address: Some("0.0.0.0".into()),
+                ..Overrides::default()
+            },
+        )
+        .unwrap();
         assert_eq!(cfg.server.bind_address, "0.0.0.0");
     }
 

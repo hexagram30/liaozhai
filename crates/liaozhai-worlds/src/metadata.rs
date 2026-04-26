@@ -15,12 +15,16 @@ pub struct WorldMetadata {
 }
 
 impl WorldMetadata {
-    pub fn new(slug: String, name: String, short_description: String) -> Self {
+    pub fn new(
+        slug: impl Into<String>,
+        name: impl Into<String>,
+        short_description: impl Into<String>,
+    ) -> Self {
         Self {
             id: WorldId::new(),
-            slug,
-            name,
-            short_description,
+            slug: slug.into(),
+            name: name.into(),
+            short_description: short_description.into(),
         }
     }
 
@@ -38,5 +42,23 @@ impl WorldMetadata {
 
     pub fn short_description(&self) -> &str {
         &self.short_description
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_and_getters() {
+        let meta = WorldMetadata::new(
+            "studio-dusk",
+            "The Studio at Dusk",
+            "A small interior, warmly lit.",
+        );
+        assert_eq!(meta.slug(), "studio-dusk");
+        assert_eq!(meta.name(), "The Studio at Dusk");
+        assert_eq!(meta.short_description(), "A small interior, warmly lit.");
+        assert_eq!(meta.id(), meta.id());
     }
 }

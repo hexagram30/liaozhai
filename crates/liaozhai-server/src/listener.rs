@@ -19,6 +19,8 @@ pub async fn run(cfg: &AppConfig) -> Result<()> {
 
     info!(%addr, "listening for connections");
 
+    // TODO(M6): enforce cfg.server.max_connections via a tokio::sync::Semaphore.
+    // Acquire a permit before tokio::spawn; release on connection-task completion.
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {

@@ -63,7 +63,7 @@ See `docs/design/05-active/0011-v0.1-implementation-plan.md` for the implementat
 
 1. **`assets/ai/rust/SKILL.md`** — advanced Rust programming skill (**use this**)
 2. **`assets/ai/rust/guides/`** — comprehensive Rust guidelines referenced by the skill
-3. **`assets/ai/CLAUDE-CODE-COVERAGE.md`** — test coverage guide (95%+ target)
+3. **`assets/ai/CLAUDE-CODE-COVERAGE.md`** — test coverage guide (general practices). The project's actual coverage targets are defined in ADR-0011 (80% by M6) and the M1 plan (60–70% at M1).
 
 **Important:** `assets/ai/rust` may be a symlink. If it doesn't resolve, ask for assistance.
 

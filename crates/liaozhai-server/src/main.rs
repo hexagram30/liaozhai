@@ -62,8 +62,14 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Run { config, port, bind } => {
-            let cfg =
-                config::load(config.as_deref(), port, bind).context("loading configuration")?;
+            let cfg = config::load(
+                config.as_deref(),
+                config::Overrides {
+                    port,
+                    bind_address: bind,
+                },
+            )
+            .context("loading configuration")?;
 
             config::init_tracing(&cfg.logging);
 
