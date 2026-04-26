@@ -13,7 +13,6 @@ use liaozhai_worlds::registry::WorldRegistry;
 
 /// The current state of a client session.
 #[derive(Debug, Clone, PartialEq)]
-#[expect(dead_code)]
 pub(crate) enum SessionState {
     /// Collecting credentials.
     /// `username: None` = waiting for username input.
@@ -22,9 +21,6 @@ pub(crate) enum SessionState {
 
     /// Authenticated; showing world list and awaiting selection.
     WorldSelection { account: Account },
-
-    /// Terminal state; connection should be closed.
-    Disconnected,
 }
 
 /// The result of processing one line of client input.
@@ -59,23 +55,19 @@ impl Session {
         }
     }
 
-    #[expect(clippy::unused_self)]
-    pub(crate) fn initial_prompt(&self) -> &'static str {
+    pub(crate) const fn initial_prompt() -> &'static str {
         constants::USERNAME_PROMPT
     }
 
     pub(crate) fn handle_input(&self, input: &str) -> Transition {
         match &self.state {
             SessionState::Authenticating { username } => match username {
-                None => self.handle_username_input(input),
+                None => Self::handle_username_input(input),
                 Some(name) => self.handle_password_input(name, input),
             },
             SessionState::WorldSelection { account } => {
                 self.handle_world_selection_input(account, input)
             }
-            SessionState::Disconnected => Transition::Disconnect {
-                goodbye: String::new(),
-            },
         }
     }
 
@@ -94,8 +86,7 @@ impl Session {
         )
     }
 
-    #[expect(clippy::unused_self)]
-    fn handle_username_input(&self, input: &str) -> Transition {
+    fn handle_username_input(input: &str) -> Transition {
         let trimmed = input.trim();
 
         if is_session_terminator(trimmed) {
@@ -180,7 +171,7 @@ impl Session {
                     let goodbye =
                         constants::WORLD_SELECTED_TEMPLATE.replace("{world}", world.name());
                     Transition::Disconnect {
-                        goodbye: format!("\r\n{goodbye}\r\n"),
+                        goodbye: format!("\r\n{goodbye}"),
                     }
                 }
                 None => Transition::Stay {
@@ -210,6 +201,11 @@ pub(crate) fn is_session_terminator(line: &str) -> bool {
     )
 }
 
+/// Render the world list as a multi-line string for display to the client.
+///
+/// Names are left-padded to the longest-name + 1 column so descriptions
+/// line up. Output ends with `\r\n` after the last entry. An empty
+/// registry produces just the header line.
 pub(crate) fn format_world_list(worlds: &[WorldMetadata]) -> String {
     use std::fmt::Write;
 

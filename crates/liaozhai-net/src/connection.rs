@@ -54,7 +54,7 @@ pub async fn handle_connection_with_codec(
     let mut writer = LineWriter::new(write_half);
 
     let mut session = Session::new(registry);
-    let initial_output = format!("{}{}", constants::BANNER, session.initial_prompt());
+    let initial_output = format!("{}{}", constants::BANNER, Session::initial_prompt());
     if let Err(e) = writer.write_raw(initial_output.as_bytes()).await {
         warn!(%conn_id, %peer, error = %e, "failed to send banner");
         return Err(e.into());
@@ -84,6 +84,10 @@ pub async fn handle_connection_with_codec(
                         }
                     }
                     Transition::Advance { next, output } => {
+                        if let Err(e) = writer.write_raw(output.as_bytes()).await {
+                            warn!(%conn_id, %peer, error = %e, "failed to write output");
+                            break;
+                        }
                         debug!(
                             %conn_id,
                             %peer,
@@ -91,14 +95,15 @@ pub async fn handle_connection_with_codec(
                             to = ?next,
                             "state transition"
                         );
-                        if let Err(e) = writer.write_raw(output.as_bytes()).await {
-                            warn!(%conn_id, %peer, error = %e, "failed to write output");
-                            break;
-                        }
                         session.apply(next);
                     }
                     Transition::Disconnect { goodbye } => {
-                        debug!(%conn_id, %peer, "session ending");
+                        debug!(
+                            %conn_id,
+                            %peer,
+                            from = ?session.state(),
+                            "session ending"
+                        );
                         // Session is ending; if the goodbye write fails, the client
                         // is already gone and there's nothing actionable.
                         let _ = writer.write_raw(goodbye.as_bytes()).await;
