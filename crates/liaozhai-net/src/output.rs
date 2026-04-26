@@ -22,8 +22,10 @@ impl LineWriter {
     ///
     /// Returns an I/O error if the write fails.
     pub async fn write_line(&mut self, line: &str) -> io::Result<()> {
-        self.inner.write_all(line.as_bytes()).await?;
-        self.inner.write_all(b"\r\n").await
+        let mut frame = Vec::with_capacity(line.len() + 2);
+        frame.extend_from_slice(line.as_bytes());
+        frame.extend_from_slice(b"\r\n");
+        self.inner.write_all(&frame).await
     }
 
     /// Write raw bytes directly (no CRLF appended).

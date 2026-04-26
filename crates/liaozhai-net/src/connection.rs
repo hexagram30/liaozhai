@@ -30,11 +30,26 @@ pub async fn handle_connection(
     stream: TcpStream,
     peer: SocketAddr,
 ) -> liaozhai_core::error::Result<()> {
+    handle_connection_with_codec(stream, peer, TelnetLineCodec::new()).await
+}
+
+/// Like [`handle_connection`], but accepts a pre-configured codec.
+///
+/// Useful for tests that need custom line/buffer limits.
+///
+/// # Errors
+///
+/// Returns an error if a fatal I/O error occurs.
+pub async fn handle_connection_with_codec(
+    stream: TcpStream,
+    peer: SocketAddr,
+    codec: TelnetLineCodec,
+) -> liaozhai_core::error::Result<()> {
     let conn_id = ConnectionId::new();
     info!(%conn_id, %peer, "connection accepted");
 
     let (read_half, write_half) = stream.into_split();
-    let mut lines = FramedRead::new(read_half, TelnetLineCodec::new());
+    let mut lines = FramedRead::new(read_half, codec);
     let mut writer = LineWriter::new(write_half);
 
     if let Err(e) = writer.write_raw(constants::BANNER.as_bytes()).await {
@@ -51,6 +66,8 @@ pub async fn handle_connection(
 
                 if is_session_terminator(&line) {
                     debug!(%conn_id, %peer, "session terminator received");
+                    // Session is ending; if the goodbye write fails, the client
+                    // is already gone and there's nothing actionable.
                     let _ = writer.write_raw(constants::GOODBYE_MSG.as_bytes()).await;
                     break;
                 }
@@ -74,6 +91,8 @@ pub async fn handle_connection(
 
             Some(Err(TelnetCodecError::BufferOverflow { max })) => {
                 warn!(%conn_id, %peer, max_size = max, "per-connection buffer overflow");
+                // Connection is being terminated by the server; if the notice
+                // write fails, the client is already gone.
                 let _ = writer
                     .write_raw(constants::BUFFER_OVERFLOW_MSG.as_bytes())
                     .await;
@@ -315,8 +334,8 @@ mod tests {
         client.write_all(b"\xFF\xFB\x01hello\r\n").await.unwrap();
         let echo = read_until_str(&mut client, "hello").await;
         assert!(echo.contains("hello"));
-        // Verify no 0xFF bytes leaked through
-        assert!(!echo.contains('\u{00FF}'));
+        // Verify no 0xFF bytes leaked through (they would render as U+FFFD after lossy decode).
+        assert!(!echo.contains('\u{FFFD}'));
 
         client.write_all(b"quit\r\n").await.unwrap();
         let mut rest = Vec::new();
@@ -342,15 +361,12 @@ mod tests {
         // data must arrive without a line terminator in the same read.
         let long_data = "x".repeat(5000);
         client.write_all(long_data.as_bytes()).await.unwrap();
-        // Small delay so the codec processes this chunk before the terminator arrives.
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let notice = read_until_str(&mut client, "Line too long").await;
         assert!(notice.contains("Line too long; ignored."));
 
         // Send a terminator to end the discarded overflow, then a normal line.
         client.write_all(b"\r\n").await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         client.write_all(b"ok\r\n").await.unwrap();
         let echo = read_until_str(&mut client, "ok\r\n").await;
         assert!(echo.contains("ok"));
@@ -358,6 +374,33 @@ mod tests {
         client.write_all(b"quit\r\n").await.unwrap();
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn buffer_overflow_disconnects_client() {
+        let (listener, addr) = setup().await;
+
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            let codec = TelnetLineCodec::with_limits(4096, 256);
+            handle_connection_with_codec(stream, peer, codec)
+                .await
+                .unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "eXegesis").await;
+
+        // Send 300 bytes with no terminator to exceed the 256-byte buffer cap.
+        let payload = vec![b'x'; 300];
+        client.write_all(&payload).await.unwrap();
+
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        let rest_str = String::from_utf8_lossy(&rest);
+        assert!(rest_str.contains("Buffer overflow; disconnecting."));
 
         server.await.unwrap();
     }

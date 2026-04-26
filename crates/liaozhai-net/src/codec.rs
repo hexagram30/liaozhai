@@ -43,6 +43,7 @@ impl From<TelnetCodecError> for liaozhai_core::error::Error {
 
 /// Items produced by the telnet line codec.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CodecItem {
     /// A complete line of input.
     Line(String),
@@ -254,7 +255,24 @@ impl Decoder for TelnetLineCodec {
                     self.subneg_iac_pending = false;
                     Ok(None)
                 } else {
-                    let line_bytes = buf.to_vec();
+                    // Strip any trailing incomplete IAC sequence before emitting
+                    // the final line. At EOF, no further bytes are coming.
+                    let mut end = buf.len();
+                    if end >= 2
+                        && buf[end - 2] == IAC
+                        && matches!(buf[end - 1], WILL | WONT | DO | DONT)
+                    {
+                        end -= 2;
+                    } else if end >= 1 && buf[end - 1] == IAC {
+                        end -= 1;
+                    }
+
+                    if end == 0 {
+                        buf.clear();
+                        return Ok(None);
+                    }
+
+                    let line_bytes = buf[..end].to_vec();
                     buf.clear();
                     let line = lossy_decode_with_warning(&line_bytes);
                     Ok(Some(CodecItem::Line(line)))
@@ -552,6 +570,26 @@ mod tests {
         let mut codec = TelnetLineCodec::new();
         let mut buf = BytesMut::from(&b"\xFF"[..]);
         assert_eq!(codec.decode_eof(&mut buf).unwrap(), None);
+    }
+
+    #[test]
+    fn decode_eof_strips_trailing_lone_iac() {
+        let mut codec = TelnetLineCodec::new();
+        let mut buf = BytesMut::from(&b"hello\xFF"[..]);
+        assert_eq!(
+            codec.decode_eof(&mut buf).unwrap(),
+            Some(CodecItem::Line("hello".into()))
+        );
+    }
+
+    #[test]
+    fn decode_eof_strips_trailing_iac_will() {
+        let mut codec = TelnetLineCodec::new();
+        let mut buf = BytesMut::from(&b"hello\xFF\xFB"[..]);
+        assert_eq!(
+            codec.decode_eof(&mut buf).unwrap(),
+            Some(CodecItem::Line("hello".into()))
+        );
     }
 
     #[test]
