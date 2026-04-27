@@ -1,7 +1,10 @@
 //! Per-connection handling.
 //!
-//! M4: state-machine-driven I/O loop with real authentication,
-//! per-connection retry counter, per-IP rate limiting, and IAC ECHO.
+//! Drives a single TCP session through the `session::Session`
+//! state machine: banner → authentication → world selection → goodbye.
+//! Integrates the M2 telnet codec, M4 SQLite/argon2 authentication,
+//! M4 per-IP rate limiting, M4 IAC ECHO password masking, and
+//! M6 graceful shutdown via `CancellationToken`.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -945,6 +948,38 @@ mod tests {
             .unwrap();
         let _ = read_until_str(&mut client, "Select a world").await;
 
+        ctx.shutdown.cancel();
+
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        let rest_str = String::from_utf8_lossy(&rest);
+        assert!(rest_str.contains("The studio closes for now"));
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_at_idle_session() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+        client.write_all(b"alice\r\n").await.unwrap();
+        let _ = read_until_str(&mut client, "Password: ").await;
+        client
+            .write_all(format!("{TEST_PASSWORD}\r\n").as_bytes())
+            .await
+            .unwrap();
+        let _ = read_until_str(&mut client, "Select a world").await;
+
+        // Session is idle, parked on lines.next(). Cancel the token
+        // and verify the select! fires the shutdown branch.
         ctx.shutdown.cancel();
 
         let mut rest = Vec::new();

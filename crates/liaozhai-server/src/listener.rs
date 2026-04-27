@@ -80,9 +80,21 @@ pub async fn run(cfg: &AppConfig) -> Result<()> {
         shutdown_signal.cancel();
     });
 
+    run_accept_loop(listener, ctx, semaphore, shutdown, drain_timeout).await;
+
+    Ok(())
+}
+
+/// The core accept loop, factored out for testability.
+pub(crate) async fn run_accept_loop(
+    listener: TcpListener,
+    ctx: Arc<SessionContext>,
+    semaphore: Arc<Semaphore>,
+    shutdown: CancellationToken,
+    drain_timeout: Duration,
+) {
     let mut join_set = JoinSet::new();
 
-    // Accept loop
     loop {
         tokio::select! {
             biased;
@@ -121,7 +133,6 @@ pub async fn run(cfg: &AppConfig) -> Result<()> {
 
     info!("closed listener");
 
-    // Drain active connections
     let drain_result = tokio::time::timeout(drain_timeout, async {
         let mut drained = 0u32;
         while join_set.join_next().await.is_some() {
@@ -140,7 +151,6 @@ pub async fn run(cfg: &AppConfig) -> Result<()> {
     }
 
     info!("shutdown complete");
-    Ok(())
 }
 
 #[cfg(unix)]
@@ -157,4 +167,183 @@ async fn wait_for_shutdown_signal() {
 #[cfg(not(unix))]
 async fn wait_for_shutdown_signal() {
     tokio::signal::ctrl_c().await.expect("ctrl_c handler");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use liaozhai_auth::params::Argon2Params;
+    use liaozhai_auth::rate_limiter::AuthRateLimiter;
+    use liaozhai_auth::store::AccountStore;
+    use liaozhai_net::context::SessionContext;
+    use liaozhai_worlds::metadata::WorldMetadata;
+    use liaozhai_worlds::registry::WorldRegistry;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio::sync::Semaphore;
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+
+    const TEST_PASSWORD: &str = "secret";
+
+    async fn setup(
+        max_connections: usize,
+        drain_secs: u64,
+    ) -> (
+        TcpListener,
+        Arc<SessionContext>,
+        Arc<Semaphore>,
+        CancellationToken,
+        Duration,
+        tempfile::TempDir,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let params = Argon2Params::test_fast();
+        let store = AccountStore::open(&db_path, &params).unwrap();
+        store.create_account("alice", TEST_PASSWORD).await.unwrap();
+
+        let shutdown = CancellationToken::new();
+
+        let ctx = Arc::new(SessionContext {
+            account_store: Arc::new(store),
+            world_registry: Arc::new(WorldRegistry::new(vec![WorldMetadata::new(
+                "test",
+                "Test World",
+                "A test.",
+            )])),
+            rate_limiter: Arc::new(AuthRateLimiter::new(Duration::from_secs(60), 10, 10_000)),
+            max_login_attempts: 3,
+            shutdown: shutdown.clone(),
+        });
+
+        let semaphore = Arc::new(Semaphore::new(max_connections));
+        let drain_timeout = Duration::from_secs(drain_secs);
+
+        (listener, ctx, semaphore, shutdown, drain_timeout, dir)
+    }
+
+    async fn read_all(client: &mut TcpStream) -> String {
+        let mut buf = Vec::new();
+        client.read_to_end(&mut buf).await.unwrap();
+        String::from_utf8_lossy(&buf).into_owned()
+    }
+
+    fn addr_of(listener: &TcpListener) -> SocketAddr {
+        listener.local_addr().unwrap()
+    }
+
+    #[tokio::test]
+    async fn max_connections_rejects_excess() {
+        let (listener, ctx, semaphore, shutdown, drain_timeout, _dir) = setup(2, 5).await;
+        let addr = addr_of(&listener);
+
+        let shutdown_clone = shutdown.clone();
+        let server = tokio::spawn(async move {
+            run_accept_loop(listener, ctx, semaphore, shutdown_clone, drain_timeout).await;
+        });
+
+        // Open 2 connections (at capacity)
+        let mut c1 = TcpStream::connect(addr).await.unwrap();
+        let mut c2 = TcpStream::connect(addr).await.unwrap();
+        // Give the accept loop time to process
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // 3rd connection should be rejected
+        let mut c3 = TcpStream::connect(addr).await.unwrap();
+        let response = read_all(&mut c3).await;
+        assert!(response.contains("Server is full"));
+
+        // Clean up
+        shutdown.cancel();
+        drop(c1);
+        drop(c2);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn semaphore_released_on_disconnect() {
+        let (listener, ctx, semaphore, shutdown, drain_timeout, _dir) = setup(1, 5).await;
+        let addr = addr_of(&listener);
+
+        let shutdown_clone = shutdown.clone();
+        let server = tokio::spawn(async move {
+            run_accept_loop(listener, ctx, semaphore, shutdown_clone, drain_timeout).await;
+        });
+
+        // Open connection 1, then close it via quit
+        let mut c1 = TcpStream::connect(addr).await.unwrap();
+        let mut buf = vec![0u8; 4096];
+        let _ = c1.read(&mut buf).await; // read banner
+        c1.write_all(b"quit\r\n").await.unwrap();
+        let _ = c1.read(&mut buf).await; // read goodbye
+        drop(c1);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Connection 2 should succeed (permit was released)
+        let mut c2 = TcpStream::connect(addr).await.unwrap();
+        let n = c2.read(&mut buf).await.unwrap();
+        let response = String::from_utf8_lossy(&buf[..n]);
+        assert!(response.contains("Liaozhai MUX"));
+
+        shutdown.cancel();
+        drop(c2);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_signal_drains_active_connections() {
+        let (listener, ctx, semaphore, shutdown, drain_timeout, _dir) = setup(10, 5).await;
+        let addr = addr_of(&listener);
+
+        let shutdown_clone = shutdown.clone();
+        let server = tokio::spawn(async move {
+            run_accept_loop(listener, ctx, semaphore, shutdown_clone, drain_timeout).await;
+        });
+
+        let mut c1 = TcpStream::connect(addr).await.unwrap();
+        let mut c2 = TcpStream::connect(addr).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        shutdown.cancel();
+
+        let r1 = read_all(&mut c1).await;
+        let r2 = read_all(&mut c2).await;
+        assert!(r1.contains("studio closes"));
+        assert!(r2.contains("studio closes"));
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_drain_timeout_abandons_stuck_clients() {
+        // Use very short drain timeout
+        let (listener, ctx, semaphore, shutdown, _drain_timeout, _dir) = setup(10, 0).await;
+        let addr = addr_of(&listener);
+        let short_drain = Duration::from_millis(200);
+
+        let shutdown_clone = shutdown.clone();
+        let server = tokio::spawn(async move {
+            run_accept_loop(listener, ctx, semaphore, shutdown_clone, short_drain).await;
+        });
+
+        // Open a connection but don't read from it (stuck client)
+        let _c1 = TcpStream::connect(addr).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        shutdown.cancel();
+
+        // Server should exit after the short drain timeout
+        let result = tokio::time::timeout(Duration::from_secs(3), server).await;
+        assert!(
+            result.is_ok(),
+            "server should have exited after drain timeout"
+        );
+    }
 }
