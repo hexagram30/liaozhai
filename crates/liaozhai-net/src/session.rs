@@ -259,7 +259,23 @@ mod tests {
     use super::*;
 
     fn test_registry() -> Arc<WorldRegistry> {
-        Arc::new(WorldRegistry::placeholder())
+        Arc::new(WorldRegistry::new(vec![
+            WorldMetadata::new(
+                "studio-dusk",
+                "The Studio at Dusk",
+                "A small interior, warmly lit.",
+            ),
+            WorldMetadata::new(
+                "mountain-trail",
+                "The Mountain Trail",
+                "A path winding into mist.",
+            ),
+            WorldMetadata::new(
+                "library-echoes",
+                "The Library of Echoes",
+                "A reading room of recursive proportions.",
+            ),
+        ]))
     }
 
     // --- is_session_terminator ---
@@ -555,7 +571,7 @@ mod tests {
 
     #[test]
     fn format_world_list_matches_demo() {
-        let reg = WorldRegistry::placeholder();
+        let reg = test_registry();
         let output = format_world_list(reg.worlds());
         assert!(output.starts_with("Available worlds:\r\n"));
         assert!(output.contains("  1. The Studio at Dusk"));

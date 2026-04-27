@@ -77,7 +77,7 @@ impl AuthConfig {
     }
 }
 
-/// World registry configuration (M5 placeholder).
+/// World registry configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct WorldsConfig {

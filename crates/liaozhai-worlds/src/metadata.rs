@@ -1,6 +1,9 @@
-//! World metadata types.
+//! World metadata types and TOML deserialization.
 //!
-//! M1: Type definitions only. TOML deserialization lands in M5.
+//! [`WorldMetadata`] is the runtime type carried by [`super::registry::WorldRegistry`].
+//! [`WorldEntryDto`] (crate-private) is the deserialization shape for `worlds.toml`;
+//! it decouples the file format from the runtime type so the public API of
+//! `WorldMetadata` can evolve independently of the wire format.
 
 use liaozhai_core::id::WorldId;
 use serde::{Deserialize, Serialize};
@@ -43,6 +46,15 @@ impl WorldMetadata {
     pub fn short_description(&self) -> &str {
         &self.short_description
     }
+}
+
+/// Intermediate struct for TOML deserialization.
+/// Decouples the file format from the runtime type.
+#[derive(Debug, Deserialize)]
+pub(crate) struct WorldEntryDto {
+    pub slug: String,
+    pub name: String,
+    pub short: String,
 }
 
 #[cfg(test)]

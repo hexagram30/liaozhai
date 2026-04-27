@@ -276,7 +276,23 @@ mod tests {
 
         let ctx = Arc::new(SessionContext {
             account_store: Arc::new(store),
-            world_registry: Arc::new(WorldRegistry::placeholder()),
+            world_registry: Arc::new(WorldRegistry::new(vec![
+                liaozhai_worlds::metadata::WorldMetadata::new(
+                    "studio-dusk",
+                    "The Studio at Dusk",
+                    "A small interior, warmly lit.",
+                ),
+                liaozhai_worlds::metadata::WorldMetadata::new(
+                    "mountain-trail",
+                    "The Mountain Trail",
+                    "A path winding into mist.",
+                ),
+                liaozhai_worlds::metadata::WorldMetadata::new(
+                    "library-echoes",
+                    "The Library of Echoes",
+                    "A reading room of recursive proportions.",
+                ),
+            ])),
             rate_limiter: Arc::new(AuthRateLimiter::new(Duration::from_secs(60), 10)),
             max_login_attempts: 3,
         });
@@ -771,5 +787,79 @@ mod tests {
         let accounts = ctx.account_store.list_accounts().await.unwrap();
         let alice = accounts.iter().find(|a| a.username() == "alice").unwrap();
         assert!(alice.last_login_at().is_some());
+    }
+
+    async fn setup_with_toml_worlds(
+        toml_content: &str,
+    ) -> (
+        TcpListener,
+        SocketAddr,
+        Arc<SessionContext>,
+        tempfile::TempDir,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let worlds_path = dir.path().join("worlds.toml");
+        std::fs::write(&worlds_path, toml_content).unwrap();
+
+        let params = Argon2Params::test_fast();
+        let store = AccountStore::open(&db_path, &params).unwrap();
+        store.create_account("alice", TEST_PASSWORD).await.unwrap();
+
+        let registry = WorldRegistry::load_from_toml(&worlds_path).unwrap();
+
+        let ctx = Arc::new(SessionContext {
+            account_store: Arc::new(store),
+            world_registry: Arc::new(registry),
+            rate_limiter: Arc::new(AuthRateLimiter::new(Duration::from_secs(60), 10)),
+            max_login_attempts: 3,
+        });
+
+        (listener, addr, ctx, dir)
+    }
+
+    #[tokio::test]
+    async fn world_list_loaded_from_toml() {
+        let toml = r#"
+            [[world]]
+            slug = "test-a"
+            name = "Test World Alpha"
+            short = "The first test world."
+
+            [[world]]
+            slug = "test-b"
+            name = "Test World Bravo"
+            short = "The second test world."
+        "#;
+
+        let (listener, addr, ctx, _dir) = setup_with_toml_worlds(toml).await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+        client.write_all(b"alice\r\n").await.unwrap();
+        let _ = read_until_str(&mut client, "Password: ").await;
+        client
+            .write_all(format!("{TEST_PASSWORD}\r\n").as_bytes())
+            .await
+            .unwrap();
+        let world_list = read_until_str(&mut client, "Select a world").await;
+
+        assert!(world_list.contains("Test World Alpha"));
+        assert!(world_list.contains("Test World Bravo"));
+        assert!(world_list.contains("Select a world (1-2, or 'quit'):"));
+
+        client.write_all(b"quit\r\n").await.unwrap();
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        server.await.unwrap();
     }
 }

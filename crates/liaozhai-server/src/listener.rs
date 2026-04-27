@@ -33,9 +33,15 @@ pub async fn run(cfg: &AppConfig) -> Result<()> {
         cfg.auth.rate_limit_max_failures,
     ));
 
-    // TODO(M5): replace with TOML-loaded registry from cfg.worlds.registry_path.
-    let world_registry = Arc::new(WorldRegistry::placeholder());
-    info!(world_count = world_registry.len(), "world registry loaded");
+    let world_registry = Arc::new(
+        WorldRegistry::load_from_toml(Path::new(&cfg.worlds.registry_path))
+            .context("loading world registry")?,
+    );
+    info!(
+        world_count = world_registry.len(),
+        path = %cfg.worlds.registry_path,
+        "world registry loaded"
+    );
 
     let ctx = Arc::new(SessionContext {
         account_store,

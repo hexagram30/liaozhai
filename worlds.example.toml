@@ -1,0 +1,18 @@
+# Liaozhai MUX — example world registry.
+# Copy to ./data/worlds.toml (or wherever cfg.worlds.registry_path points)
+# and customize. Worlds are displayed to clients in declaration order.
+
+[[world]]
+slug = "studio-dusk"
+name = "The Studio at Dusk"
+short = "A small interior, warmly lit."
+
+[[world]]
+slug = "mountain-trail"
+name = "The Mountain Trail"
+short = "A path winding into mist."
+
+[[world]]
+slug = "library-echoes"
+name = "The Library of Echoes"
+short = "A reading room of recursive proportions."

@@ -563,7 +563,10 @@ version = "0.1.0"
 dependencies = [
  "liaozhai-core",
  "serde",
+ "tempfile",
  "thiserror",
+ "toml",
+ "tracing",
 ]
 
 [[package]]
