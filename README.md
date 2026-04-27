@@ -2,7 +2,32 @@
 
 *A Rust-based multi-user exegesis for procedural literary fiction and world-building, in the PennMUSH/TinyMUSH lineage*
 
-> **Status:** Early stage. This README is a placeholder; expect everything to change.
+> **Status:** v0.1.0 — connect, authenticate, and list worlds via telnet. In-world simulation begins in v0.2.
+
+## Quick Start
+
+```bash
+git clone https://github.com/hexagram30/liaozhai
+cd liaozhai
+
+# Set up data directory
+mkdir -p data
+cp worlds.example.toml data/worlds.toml
+
+# Build
+make build
+
+# Create an account
+printf 'secret\nsecret\n' | cargo run --bin liaozhai-server -- account create alice
+
+# Run the server
+cargo run --bin liaozhai-server -- run
+
+# In another terminal:
+telnet 127.0.0.1 4444
+```
+
+See `docs/design/` for architecture decisions and `docs/dev/` for milestone plans.
 
 ---
 

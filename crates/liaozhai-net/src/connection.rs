@@ -73,7 +73,16 @@ pub async fn handle_connection_with_codec(
     let mut auth_failures: u32 = 0;
     let mut line_count: u64 = 0;
     loop {
-        match lines.next().await {
+        let line_result = tokio::select! {
+            biased;
+            () = ctx.shutdown.cancelled() => {
+                debug!(%conn_id, %peer, "shutdown signal received");
+                let _ = writer.write_raw(constants::SHUTDOWN_MSG.as_bytes()).await;
+                break;
+            }
+            result = lines.next() => result,
+        };
+        match line_result {
             Some(Ok(CodecItem::Line(line))) => {
                 line_count += 1;
                 let logged_line = if session.is_password_input() {
@@ -255,6 +264,7 @@ mod tests {
     use liaozhai_worlds::registry::WorldRegistry;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio_util::sync::CancellationToken;
 
     use super::*;
 
@@ -294,8 +304,9 @@ mod tests {
                     "A reading room of recursive proportions.",
                 ),
             ])),
-            rate_limiter: Arc::new(AuthRateLimiter::new(Duration::from_secs(60), 10)),
+            rate_limiter: Arc::new(AuthRateLimiter::new(Duration::from_secs(60), 10, 10_000)),
             max_login_attempts: 3,
+            shutdown: CancellationToken::new(),
         });
 
         (listener, addr, ctx, dir)
@@ -815,8 +826,9 @@ mod tests {
         let ctx = Arc::new(SessionContext {
             account_store: Arc::new(store),
             world_registry: Arc::new(registry),
-            rate_limiter: Arc::new(AuthRateLimiter::new(Duration::from_secs(60), 10)),
+            rate_limiter: Arc::new(AuthRateLimiter::new(Duration::from_secs(60), 10, 10_000)),
             max_login_attempts: 3,
+            shutdown: CancellationToken::new(),
         });
 
         (listener, addr, ctx, dir)
@@ -861,6 +873,85 @@ mod tests {
         client.write_all(b"quit\r\n").await.unwrap();
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_cancels_active_session() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+
+        // Signal shutdown
+        ctx.shutdown.cancel();
+
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        let rest_str = String::from_utf8_lossy(&rest);
+        assert!(rest_str.contains("The studio closes for now"));
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_during_auth() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+        client.write_all(b"alice\r\n").await.unwrap();
+        let _ = read_until_str(&mut client, "Password: ").await;
+
+        ctx.shutdown.cancel();
+
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        let rest_str = String::from_utf8_lossy(&rest);
+        assert!(rest_str.contains("The studio closes for now"));
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_during_world_selection() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+        client.write_all(b"alice\r\n").await.unwrap();
+        let _ = read_until_str(&mut client, "Password: ").await;
+        client
+            .write_all(format!("{TEST_PASSWORD}\r\n").as_bytes())
+            .await
+            .unwrap();
+        let _ = read_until_str(&mut client, "Select a world").await;
+
+        ctx.shutdown.cancel();
+
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        let rest_str = String::from_utf8_lossy(&rest);
+        assert!(rest_str.contains("The studio closes for now"));
+
         server.await.unwrap();
     }
 }

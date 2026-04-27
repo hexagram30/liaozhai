@@ -1,6 +1,8 @@
-//! Liaozhai MUX — umbrella crate.
+//! Liaozhai MUX umbrella crate.
 //!
-//! Re-exports the public API from workspace crates for convenient access.
+//! Re-exports the curated public API of the workspace. Most consumers
+//! should depend on this crate rather than the individual workspace
+//! members.
 
 pub use liaozhai_core::constants;
 pub use liaozhai_core::error;

@@ -16,6 +16,7 @@ liaozhai-net.workspace = true
 liaozhai-auth.workspace = true
 liaozhai-worlds.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 clap.workspace = true

@@ -116,6 +116,20 @@ pub const DEFAULT_RATE_LIMIT_WINDOW_SECS: u64 = 60;
 /// Default maximum failures per IP within the rate-limit window.
 pub const DEFAULT_RATE_LIMIT_MAX_FAILURES: usize = 10;
 
+// --- Server lifecycle ---
+
+/// Message sent when the server is at `max_connections`.
+pub const SERVER_FULL_MSG: &str = "Server is full. Try again later.\r\n";
+
+/// Message sent to active connections during server shutdown.
+pub const SHUTDOWN_MSG: &str = "The studio closes for now. Until the next strange tale.\r\n";
+
+/// Default graceful shutdown drain timeout in seconds.
+pub const DEFAULT_SHUTDOWN_DRAIN_SECS: u64 = 10;
+
+/// Default maximum entries in the rate limiter `HashMap`.
+pub const DEFAULT_RATE_LIMITER_MAX_ENTRIES: usize = 10_000;
+
 #[cfg(test)]
 mod tests {
     use super::*;

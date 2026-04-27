@@ -24,6 +24,7 @@ pub struct ServerConfig {
     pub bind_address: String,
     pub port: u16,
     pub max_connections: usize,
+    pub shutdown_drain_secs: u64,
 }
 
 impl Default for ServerConfig {
@@ -32,6 +33,7 @@ impl Default for ServerConfig {
             bind_address: constants::DEFAULT_BIND_ADDRESS.to_owned(),
             port: constants::DEFAULT_PORT,
             max_connections: constants::DEFAULT_MAX_CONNECTIONS,
+            shutdown_drain_secs: constants::DEFAULT_SHUTDOWN_DRAIN_SECS,
         }
     }
 }
@@ -47,6 +49,7 @@ pub struct AuthConfig {
     pub argon2_parallelism: u32,
     pub rate_limit_window_secs: u64,
     pub rate_limit_max_failures: usize,
+    pub rate_limiter_max_entries: usize,
 }
 
 impl Default for AuthConfig {
@@ -59,6 +62,7 @@ impl Default for AuthConfig {
             argon2_parallelism: constants::DEFAULT_ARGON2_PARALLELISM,
             rate_limit_window_secs: constants::DEFAULT_RATE_LIMIT_WINDOW_SECS,
             rate_limit_max_failures: constants::DEFAULT_RATE_LIMIT_MAX_FAILURES,
+            rate_limiter_max_entries: constants::DEFAULT_RATE_LIMITER_MAX_ENTRIES,
         }
     }
 }

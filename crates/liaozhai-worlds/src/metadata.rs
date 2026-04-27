@@ -1,7 +1,7 @@
 //! World metadata types and TOML deserialization.
 //!
 //! [`WorldMetadata`] is the runtime type carried by [`super::registry::WorldRegistry`].
-//! [`WorldEntryDto`] (crate-private) is the deserialization shape for `worlds.toml`;
+//! `WorldEntryDto` (crate-private) is the deserialization shape for `worlds.toml`;
 //! it decouples the file format from the runtime type so the public API of
 //! `WorldMetadata` can evolve independently of the wire format.
 
