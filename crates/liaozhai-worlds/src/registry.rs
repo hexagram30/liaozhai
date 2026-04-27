@@ -237,6 +237,56 @@ mod tests {
         assert!(err.contains("duplicate slug 'same'"));
     }
 
+    #[test]
+    fn rejects_toml_with_no_world_field() {
+        let toml = "# just a comment\n";
+        let err = parse_worlds_toml(toml).unwrap_err();
+        assert!(err.contains("world") || err.contains("missing"));
+    }
+
+    #[test]
+    fn rejects_whitespace_only_slug() {
+        let toml = r#"
+            [[world]]
+            slug = "   "
+            name = "Test"
+            short = "Desc"
+        "#;
+        let err = parse_worlds_toml(toml).unwrap_err();
+        assert!(err.contains("slug is empty"));
+    }
+
+    #[test]
+    fn slug_is_trimmed_before_storage() {
+        let toml = r#"
+            [[world]]
+            slug = "  abc  "
+            name = "  Alpha  "
+            short = "  First  "
+        "#;
+        let worlds = parse_worlds_toml(toml).unwrap();
+        assert_eq!(worlds[0].slug(), "abc");
+        assert_eq!(worlds[0].name(), "Alpha");
+        assert_eq!(worlds[0].short_description(), "First");
+    }
+
+    #[test]
+    fn duplicate_detection_after_trim() {
+        let toml = r#"
+            [[world]]
+            slug = "abc"
+            name = "First"
+            short = "Desc"
+
+            [[world]]
+            slug = "  abc  "
+            name = "Second"
+            short = "Desc"
+        "#;
+        let err = parse_worlds_toml(toml).unwrap_err();
+        assert!(err.contains("duplicate slug 'abc'"));
+    }
+
     // --- WorldRegistry::new ---
 
     #[test]

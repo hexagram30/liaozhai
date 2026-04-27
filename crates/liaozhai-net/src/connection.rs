@@ -251,6 +251,7 @@ mod tests {
     use liaozhai_auth::params::Argon2Params;
     use liaozhai_auth::rate_limiter::AuthRateLimiter;
     use liaozhai_auth::store::AccountStore;
+    use liaozhai_worlds::metadata::WorldMetadata;
     use liaozhai_worlds::registry::WorldRegistry;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -277,17 +278,17 @@ mod tests {
         let ctx = Arc::new(SessionContext {
             account_store: Arc::new(store),
             world_registry: Arc::new(WorldRegistry::new(vec![
-                liaozhai_worlds::metadata::WorldMetadata::new(
+                WorldMetadata::new(
                     "studio-dusk",
                     "The Studio at Dusk",
                     "A small interior, warmly lit.",
                 ),
-                liaozhai_worlds::metadata::WorldMetadata::new(
+                WorldMetadata::new(
                     "mountain-trail",
                     "The Mountain Trail",
                     "A path winding into mist.",
                 ),
-                liaozhai_worlds::metadata::WorldMetadata::new(
+                WorldMetadata::new(
                     "library-echoes",
                     "The Library of Echoes",
                     "A reading room of recursive proportions.",
