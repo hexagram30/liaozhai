@@ -92,26 +92,15 @@ pub async fn handle_connection_with_codec(
                             break;
                         }
                     }
-                    Transition::Advance {
-                        ref next,
-                        ref output,
-                    } => {
-                        // IAC ECHO: entering password state → suppress client echo
-                        if matches!(next, SessionState::Authenticating { username: Some(_) }) {
-                            if let Err(e) = writer.write_raw(constants::IAC_WILL_ECHO).await {
-                                warn!(%conn_id, %peer, error = %e, "failed to write IAC WILL ECHO");
-                                break;
-                            }
+                    Transition::Advance { next, output } => {
+                        let mut frame = Vec::with_capacity(output.len() + 3);
+                        if matches!(&next, SessionState::Authenticating { username: Some(_) }) {
+                            frame.extend_from_slice(constants::IAC_WILL_ECHO);
+                        } else if matches!(&next, SessionState::WorldSelection { .. }) {
+                            frame.extend_from_slice(constants::IAC_WONT_ECHO);
                         }
-                        // IAC ECHO: entering world selection → restore client echo
-                        if matches!(next, SessionState::WorldSelection { .. }) {
-                            if let Err(e) = writer.write_raw(constants::IAC_WONT_ECHO).await {
-                                warn!(%conn_id, %peer, error = %e, "failed to write IAC WONT ECHO");
-                                break;
-                            }
-                        }
-
-                        if let Err(e) = writer.write_raw(output.as_bytes()).await {
+                        frame.extend_from_slice(output.as_bytes());
+                        if let Err(e) = writer.write_raw(&frame).await {
                             warn!(%conn_id, %peer, error = %e, "failed to write output");
                             break;
                         }
@@ -120,7 +109,7 @@ pub async fn handle_connection_with_codec(
                             from = ?session.state(), to = ?next,
                             "state transition"
                         );
-                        session.apply(next.clone());
+                        session.apply(next);
                     }
                     Transition::AuthPending { username, password } => {
                         // IAC ECHO: password consumed, restore client echo immediately
@@ -174,10 +163,12 @@ pub async fn handle_connection_with_codec(
 
                         let completion = session.complete_auth(auth_result);
                         match completion {
-                            Transition::Advance {
-                                ref next,
-                                ref output,
-                            } => {
+                            Transition::Advance { next, output } => {
+                                // The inner Advance from complete_auth only ever targets
+                                // WorldSelection or Authenticating { username: None }. It
+                                // never targets the password sub-state, so no IAC ECHO
+                                // handling is needed here. If complete_auth ever gains a
+                                // new variant that targets a different state, revisit.
                                 if let Err(e) = writer.write_raw(output.as_bytes()).await {
                                     warn!(%conn_id, %peer, error = %e, "failed to write output");
                                     break;
@@ -187,7 +178,7 @@ pub async fn handle_connection_with_codec(
                                     from = ?session.state(), to = ?next,
                                     "state transition"
                                 );
-                                session.apply(next.clone());
+                                session.apply(next);
                             }
                             other => {
                                 warn!(%conn_id, %peer, transition = ?other, "unexpected transition from complete_auth");
@@ -726,5 +717,59 @@ mod tests {
         assert!(rest_str.contains("Buffer overflow; disconnecting."));
 
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rate_limited_connection_rejected_immediately() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        // Trigger the rate limiter for the loopback IP.
+        let loopback: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+        for _ in 0..15 {
+            ctx.rate_limiter.record_failure(loopback);
+        }
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        let rest_str = String::from_utf8_lossy(&rest);
+        assert!(rest_str.contains("Too many failed attempts from your IP"));
+
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn successful_login_records_last_login_at() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+        client.write_all(b"alice\r\n").await.unwrap();
+        let _ = read_until_str(&mut client, "Password: ").await;
+        client
+            .write_all(format!("{TEST_PASSWORD}\r\n").as_bytes())
+            .await
+            .unwrap();
+        let _ = read_until_str(&mut client, "Select a world").await;
+        client.write_all(b"quit\r\n").await.unwrap();
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        server.await.unwrap();
+
+        let accounts = ctx.account_store.list_accounts().await.unwrap();
+        let alice = accounts.iter().find(|a| a.username() == "alice").unwrap();
+        assert!(alice.last_login_at().is_some());
     }
 }

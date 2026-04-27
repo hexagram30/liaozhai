@@ -68,10 +68,6 @@ impl AccountStore {
     /// # Errors
     ///
     /// Returns an error if the database cannot be opened or the schema cannot be created.
-    ///
-    /// # Panics
-    ///
-    /// Panics if argon2 dummy hash generation fails (should not happen with valid params).
     pub fn open(path: &Path, params: &Argon2Params) -> Result<Self> {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
@@ -180,6 +176,8 @@ impl AccountStore {
                 Ok((id_str, db_username, stored_hash, created_at, last_login_at)) => {
                     let parsed = PasswordHash::new(&stored_hash)
                         .map_err(|e| Error::Auth(format!("parsing stored hash: {e}")))?;
+                    // Argon2 parameters for verification come from the parsed PHC
+                    // string, not from this instance — default params are irrelevant.
                     let argon2 = Argon2::default();
                     if argon2.verify_password(password.as_bytes(), &parsed).is_ok() {
                         let uuid = Uuid::parse_str(&id_str)

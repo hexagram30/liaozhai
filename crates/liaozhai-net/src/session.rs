@@ -1,8 +1,10 @@
 //! Connection session state machine.
 //!
-//! M3: banner → username → password → world list → world selection → goodbye.
-//! Authentication is stubbed; any non-empty username/password succeeds.
-//! World list is populated from a `WorldRegistry`.
+//! Drives the connection through banner → username → password → world list →
+//! world selection → goodbye. Authentication runs through the connection
+//! handler (which awaits `AccountStore::verify_credentials`) via the
+//! [`Transition::AuthPending`] variant; the session itself stays sync.
+//! The world list is populated from a `WorldRegistry`.
 
 use std::sync::Arc;
 

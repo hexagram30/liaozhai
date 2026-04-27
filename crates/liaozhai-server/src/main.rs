@@ -190,8 +190,15 @@ fn format_timestamp(epoch_secs: i64) -> String {
     let Ok(dt) = time::OffsetDateTime::from_unix_timestamp(epoch_secs) else {
         return format!("{epoch_secs}");
     };
+    // Convert to local time. Falls back to UTC on platforms where the
+    // local offset can't be determined (e.g., some sandboxed environments).
+    let local = match time::UtcOffset::current_local_offset() {
+        Ok(offset) => dt.to_offset(offset),
+        Err(_) => dt,
+    };
     let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
         .expect("valid format description");
-    dt.format(&format)
+    local
+        .format(&format)
         .unwrap_or_else(|_| format!("{epoch_secs}"))
 }
