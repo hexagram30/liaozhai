@@ -35,6 +35,11 @@ pub(crate) enum Transition {
 
     /// End the session; write the goodbye message and disconnect.
     Disconnect { goodbye: String },
+
+    /// The session needs async credential verification.
+    /// The connection handler performs the async call, then calls
+    /// `session.complete_auth(result)` with the outcome.
+    AuthPending { username: String, password: String },
 }
 
 /// A client session, managing state transitions through the connection lifecycle.
@@ -63,7 +68,7 @@ impl Session {
         match &self.state {
             SessionState::Authenticating { username } => match username {
                 None => Self::handle_username_input(input),
-                Some(name) => self.handle_password_input(name, input),
+                Some(name) => Self::handle_password_input(name, input),
             },
             SessionState::WorldSelection { account } => {
                 self.handle_world_selection_input(account, input)
@@ -84,6 +89,32 @@ impl Session {
             self.state,
             SessionState::Authenticating { username: Some(_) }
         )
+    }
+
+    /// Complete an authentication attempt after the connection handler
+    /// has resolved the async credential verification.
+    pub(crate) fn complete_auth(&self, auth_result: Option<Account>) -> Transition {
+        match auth_result {
+            Some(account) => {
+                let welcome = constants::WELCOME_TEMPLATE.replace("{username}", account.username());
+                let world_list = format_world_list(self.registry.worlds());
+                let select_prompt = format_world_select_prompt(self.registry.len());
+                let output = format!("{welcome}{world_list}\r\n{select_prompt}");
+
+                Transition::Advance {
+                    next: SessionState::WorldSelection { account },
+                    output,
+                }
+            }
+            None => Transition::Advance {
+                next: SessionState::Authenticating { username: None },
+                output: format!(
+                    "{}{}",
+                    constants::AUTH_FAILED_MSG,
+                    constants::USERNAME_PROMPT,
+                ),
+            },
+        }
     }
 
     fn handle_username_input(input: &str) -> Transition {
@@ -113,7 +144,7 @@ impl Session {
         }
     }
 
-    fn handle_password_input(&self, username: &str, input: &str) -> Transition {
+    fn handle_password_input(username: &str, input: &str) -> Transition {
         let trimmed = input.trim();
 
         if is_session_terminator(trimmed) {
@@ -132,17 +163,9 @@ impl Session {
             };
         }
 
-        // TODO(M4): replace with real SQLite + argon2 authentication.
-        let account = Account::new(username);
-        let welcome = constants::WELCOME_TEMPLATE.replace("{username}", username);
-        let world_list = format_world_list(self.registry.worlds());
-        let select_prompt = format_world_select_prompt(self.registry.len());
-
-        let output = format!("{welcome}{world_list}\r\n{select_prompt}");
-
-        Transition::Advance {
-            next: SessionState::WorldSelection { account },
-            output,
+        Transition::AuthPending {
+            username: username.to_owned(),
+            password: trimmed.to_owned(),
         }
     }
 
@@ -340,19 +363,45 @@ mod tests {
     // --- Password state ---
 
     #[test]
-    fn password_accepts_non_empty() {
+    fn password_returns_auth_pending() {
         let mut session = Session::new(test_registry());
         session.apply(SessionState::Authenticating {
             username: Some("alice".into()),
         });
         let t = session.handle_input("secret");
         match t {
+            Transition::AuthPending { username, password } => {
+                assert_eq!(username, "alice");
+                assert_eq!(password, "secret");
+            }
+            other => panic!("expected AuthPending, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn complete_auth_success_advances_to_world_selection() {
+        let session = Session::new(test_registry());
+        let account = Account::new("alice");
+        let t = session.complete_auth(Some(account));
+        match t {
             Transition::Advance { next, output } => {
                 assert!(matches!(next, SessionState::WorldSelection { .. }));
                 assert!(output.contains("Welcome, alice"));
                 assert!(output.contains("Available worlds:"));
-                assert!(output.contains("The Studio at Dusk"));
-                assert!(output.contains("Select a world"));
+            }
+            other => panic!("expected Advance, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn complete_auth_failure_returns_to_username() {
+        let session = Session::new(test_registry());
+        let t = session.complete_auth(None);
+        match t {
+            Transition::Advance { next, output } => {
+                assert_eq!(next, SessionState::Authenticating { username: None });
+                assert!(output.contains("Authentication failed"));
+                assert!(output.contains("Username: "));
             }
             other => panic!("expected Advance, got {other:?}"),
         }

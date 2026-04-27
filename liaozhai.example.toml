@@ -9,6 +9,12 @@ max_connections = 100
 
 [auth]
 db_path = "./data/accounts.db"
+max_login_attempts = 3
+argon2_memory_cost = 19456    # KiB; 19 MiB (OWASP 2024 baseline)
+argon2_time_cost = 2
+argon2_parallelism = 1
+rate_limit_window_secs = 60
+rate_limit_max_failures = 10
 
 [worlds]
 registry_path = "./data/worlds.toml"

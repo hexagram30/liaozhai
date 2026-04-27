@@ -9,6 +9,15 @@ rust-version.workspace = true
 [dependencies]
 liaozhai-core.workspace = true
 thiserror.workspace = true
+rusqlite.workspace = true
+argon2.workspace = true
+password-hash.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

@@ -36,18 +36,44 @@ impl Default for ServerConfig {
     }
 }
 
-/// Authentication configuration (M4 placeholder).
+/// Authentication configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct AuthConfig {
     pub db_path: String,
+    pub max_login_attempts: u32,
+    pub argon2_memory_cost: u32,
+    pub argon2_time_cost: u32,
+    pub argon2_parallelism: u32,
+    pub rate_limit_window_secs: u64,
+    pub rate_limit_max_failures: usize,
 }
 
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
             db_path: "./data/accounts.db".to_owned(),
+            max_login_attempts: constants::DEFAULT_MAX_LOGIN_ATTEMPTS,
+            argon2_memory_cost: constants::DEFAULT_ARGON2_MEMORY_COST,
+            argon2_time_cost: constants::DEFAULT_ARGON2_TIME_COST,
+            argon2_parallelism: constants::DEFAULT_ARGON2_PARALLELISM,
+            rate_limit_window_secs: constants::DEFAULT_RATE_LIMIT_WINDOW_SECS,
+            rate_limit_max_failures: constants::DEFAULT_RATE_LIMIT_MAX_FAILURES,
         }
+    }
+}
+
+impl AuthConfig {
+    pub fn argon2_params(&self) -> liaozhai_auth::params::Argon2Params {
+        liaozhai_auth::params::Argon2Params::new(
+            self.argon2_memory_cost,
+            self.argon2_time_cost,
+            self.argon2_parallelism,
+        )
+    }
+
+    pub fn rate_limit_window(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.rate_limit_window_secs)
     }
 }
 

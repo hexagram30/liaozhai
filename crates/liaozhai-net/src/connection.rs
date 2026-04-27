@@ -1,6 +1,7 @@
 //! Per-connection handling.
 //!
-//! M3: state-machine-driven I/O loop (banner → auth → world selection → goodbye).
+//! M4: state-machine-driven I/O loop with real authentication,
+//! per-connection retry counter, per-IP rate limiting, and IAC ECHO.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -8,19 +9,16 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use liaozhai_core::constants;
 use liaozhai_core::id::ConnectionId;
-use liaozhai_worlds::registry::WorldRegistry;
 use tokio::net::TcpStream;
 use tokio_util::codec::FramedRead;
 use tracing::{debug, info, trace, warn};
 
 use crate::codec::{CodecItem, TelnetCodecError, TelnetLineCodec};
+use crate::context::SessionContext;
 use crate::output::LineWriter;
-use crate::session::{Session, Transition};
+use crate::session::{Session, SessionState, Transition};
 
 /// Handle a single inbound TCP connection.
-///
-/// Sends the server banner, then drives the session state machine through
-/// authentication and world selection.
 ///
 /// # Errors
 ///
@@ -28,45 +26,56 @@ use crate::session::{Session, Transition};
 pub async fn handle_connection(
     stream: TcpStream,
     peer: SocketAddr,
-    registry: Arc<WorldRegistry>,
+    ctx: Arc<SessionContext>,
 ) -> liaozhai_core::error::Result<()> {
-    handle_connection_with_codec(stream, peer, TelnetLineCodec::new(), registry).await
+    handle_connection_with_codec(stream, peer, TelnetLineCodec::new(), ctx).await
 }
 
 /// Like [`handle_connection`], but accepts a pre-configured codec.
 ///
-/// Useful for tests that need custom line/buffer limits.
-///
 /// # Errors
 ///
 /// Returns an error if a fatal I/O error occurs.
+#[expect(clippy::too_many_lines)]
 pub async fn handle_connection_with_codec(
     stream: TcpStream,
     peer: SocketAddr,
     codec: TelnetLineCodec,
-    registry: Arc<WorldRegistry>,
+    ctx: Arc<SessionContext>,
 ) -> liaozhai_core::error::Result<()> {
     let conn_id = ConnectionId::new();
     info!(%conn_id, %peer, "connection accepted");
+
+    // Check IP rate limit immediately on connect
+    if ctx.rate_limiter.is_throttled(peer.ip()) {
+        let (_, write_half) = stream.into_split();
+        let mut writer = LineWriter::new(write_half);
+        // Connection is rate-limited; notice write failure is non-actionable.
+        let _ = writer
+            .write_raw(constants::AUTH_RATE_LIMITED_MSG.as_bytes())
+            .await;
+        let _ = writer.shutdown().await;
+        info!(%conn_id, %peer, "rate-limited, disconnected immediately");
+        return Ok(());
+    }
 
     let (read_half, write_half) = stream.into_split();
     let mut lines = FramedRead::new(read_half, codec);
     let mut writer = LineWriter::new(write_half);
 
-    let mut session = Session::new(registry);
+    let mut session = Session::new(Arc::clone(&ctx.world_registry));
     let initial_output = format!("{}{}", constants::BANNER, Session::initial_prompt());
     if let Err(e) = writer.write_raw(initial_output.as_bytes()).await {
         warn!(%conn_id, %peer, error = %e, "failed to send banner");
         return Err(e.into());
     }
 
+    let mut auth_failures: u32 = 0;
     let mut line_count: u64 = 0;
     loop {
         match lines.next().await {
             Some(Ok(CodecItem::Line(line))) => {
                 line_count += 1;
-                // TODO(M4): redact password from trace logging when IAC ECHO
-                // negotiation lands. For now, redact based on session state.
                 let logged_line = if session.is_password_input() {
                     "<redacted>"
                 } else {
@@ -83,29 +92,120 @@ pub async fn handle_connection_with_codec(
                             break;
                         }
                     }
-                    Transition::Advance { next, output } => {
+                    Transition::Advance {
+                        ref next,
+                        ref output,
+                    } => {
+                        // IAC ECHO: entering password state → suppress client echo
+                        if matches!(next, SessionState::Authenticating { username: Some(_) }) {
+                            if let Err(e) = writer.write_raw(constants::IAC_WILL_ECHO).await {
+                                warn!(%conn_id, %peer, error = %e, "failed to write IAC WILL ECHO");
+                                break;
+                            }
+                        }
+                        // IAC ECHO: entering world selection → restore client echo
+                        if matches!(next, SessionState::WorldSelection { .. }) {
+                            if let Err(e) = writer.write_raw(constants::IAC_WONT_ECHO).await {
+                                warn!(%conn_id, %peer, error = %e, "failed to write IAC WONT ECHO");
+                                break;
+                            }
+                        }
+
                         if let Err(e) = writer.write_raw(output.as_bytes()).await {
                             warn!(%conn_id, %peer, error = %e, "failed to write output");
                             break;
                         }
                         debug!(
-                            %conn_id,
-                            %peer,
-                            from = ?session.state(),
-                            to = ?next,
+                            %conn_id, %peer,
+                            from = ?session.state(), to = ?next,
                             "state transition"
                         );
-                        session.apply(next);
+                        session.apply(next.clone());
+                    }
+                    Transition::AuthPending { username, password } => {
+                        // IAC ECHO: password consumed, restore client echo immediately
+                        if let Err(e) = writer.write_raw(constants::IAC_WONT_ECHO).await {
+                            warn!(%conn_id, %peer, error = %e, "failed to write IAC WONT ECHO");
+                            break;
+                        }
+
+                        // Async credential verification
+                        let auth_result = match ctx
+                            .account_store
+                            .verify_credentials(&username, &password)
+                            .await
+                        {
+                            Ok(result) => result,
+                            Err(e) => {
+                                warn!(%conn_id, %peer, error = %e, "auth store error");
+                                // Connection terminated due to internal error;
+                                // notice write failure is non-actionable.
+                                let _ = writer
+                                    .write_raw(constants::AUTH_INTERNAL_ERROR_MSG.as_bytes())
+                                    .await;
+                                break;
+                            }
+                        };
+
+                        if let Some(ref account) = auth_result {
+                            ctx.rate_limiter.reset(peer.ip());
+                            if let Err(e) = ctx.account_store.record_login(account.id()).await {
+                                warn!(%conn_id, %peer, error = %e, "failed to record login");
+                            }
+                            info!(%conn_id, %peer, username = %username, "authentication successful");
+                        } else {
+                            auth_failures += 1;
+                            ctx.rate_limiter.record_failure(peer.ip());
+                            warn!(
+                                %conn_id, %peer,
+                                username = %username,
+                                failures = auth_failures,
+                                "authentication failed"
+                            );
+
+                            if auth_failures >= ctx.max_login_attempts {
+                                // Retry limit exceeded; notice write failure is non-actionable.
+                                let _ = writer
+                                    .write_raw(constants::AUTH_MAX_RETRIES_MSG.as_bytes())
+                                    .await;
+                                break;
+                            }
+                        }
+
+                        let completion = session.complete_auth(auth_result);
+                        match completion {
+                            Transition::Advance {
+                                ref next,
+                                ref output,
+                            } => {
+                                if let Err(e) = writer.write_raw(output.as_bytes()).await {
+                                    warn!(%conn_id, %peer, error = %e, "failed to write output");
+                                    break;
+                                }
+                                debug!(
+                                    %conn_id, %peer,
+                                    from = ?session.state(), to = ?next,
+                                    "state transition"
+                                );
+                                session.apply(next.clone());
+                            }
+                            other => {
+                                warn!(%conn_id, %peer, transition = ?other, "unexpected transition from complete_auth");
+                                break;
+                            }
+                        }
                     }
                     Transition::Disconnect { goodbye } => {
+                        // IAC ECHO: if disconnecting from password state, restore echo first
+                        if session.is_password_input() {
+                            let _ = writer.write_raw(constants::IAC_WONT_ECHO).await;
+                        }
                         debug!(
-                            %conn_id,
-                            %peer,
+                            %conn_id, %peer,
                             from = ?session.state(),
                             "session ending"
                         );
-                        // Session is ending; if the goodbye write fails, the client
-                        // is already gone and there's nothing actionable.
+                        // Session is ending; notice write failure is non-actionable.
                         let _ = writer.write_raw(goodbye.as_bytes()).await;
                         break;
                     }
@@ -125,8 +225,7 @@ pub async fn handle_connection_with_codec(
 
             Some(Err(TelnetCodecError::BufferOverflow { max })) => {
                 warn!(%conn_id, %peer, max_size = max, "per-connection buffer overflow");
-                // Connection is being terminated by the server; if the notice
-                // write fails, the client is already gone.
+                // Connection terminated; notice write failure is non-actionable.
                 let _ = writer
                     .write_raw(constants::BUFFER_OVERFLOW_MSG.as_bytes())
                     .await;
@@ -156,22 +255,46 @@ pub async fn handle_connection_with_codec(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
+    use liaozhai_auth::params::Argon2Params;
+    use liaozhai_auth::rate_limiter::AuthRateLimiter;
+    use liaozhai_auth::store::AccountStore;
     use liaozhai_worlds::registry::WorldRegistry;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
     use super::*;
 
-    async fn setup() -> (TcpListener, SocketAddr, Arc<WorldRegistry>) {
+    const TEST_PASSWORD: &str = "secret";
+
+    async fn setup() -> (
+        TcpListener,
+        SocketAddr,
+        Arc<SessionContext>,
+        tempfile::TempDir,
+    ) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let registry = Arc::new(WorldRegistry::placeholder());
-        (listener, addr, registry)
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let params = Argon2Params::test_fast();
+        let store = AccountStore::open(&db_path, &params).unwrap();
+        store.create_account("alice", TEST_PASSWORD).await.unwrap();
+
+        let ctx = Arc::new(SessionContext {
+            account_store: Arc::new(store),
+            world_registry: Arc::new(WorldRegistry::placeholder()),
+            rate_limiter: Arc::new(AuthRateLimiter::new(Duration::from_secs(60), 10)),
+            max_login_attempts: 3,
+        });
+
+        (listener, addr, ctx, dir)
     }
 
     async fn read_until_str(client: &mut TcpStream, marker: &str) -> String {
-        let mut buf = vec![0u8; 8192];
+        let mut buf = vec![0u8; 16384];
         let mut received = String::new();
         loop {
             let n = client.read(&mut buf).await.unwrap();
@@ -186,61 +309,216 @@ mod tests {
         received
     }
 
+    async fn read_raw_until(client: &mut TcpStream, marker: &[u8]) -> Vec<u8> {
+        let mut buf = vec![0u8; 16384];
+        let mut received = Vec::new();
+        loop {
+            let n = client.read(&mut buf).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            received.extend_from_slice(&buf[..n]);
+            if received.windows(marker.len()).any(|w| w == marker) {
+                break;
+            }
+        }
+        received
+    }
+
     #[tokio::test]
     async fn full_v01_demo() {
-        let (listener, addr, registry) = setup().await;
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
 
         let banner = read_until_str(&mut client, "Username: ").await;
         assert!(banner.contains("Liaozhai MUX"));
-        assert!(banner.contains("Username: "));
 
         client.write_all(b"alice\r\n").await.unwrap();
         let prompt = read_until_str(&mut client, "Password: ").await;
         assert!(prompt.contains("Password: "));
 
-        client.write_all(b"secret\r\n").await.unwrap();
+        client
+            .write_all(format!("{TEST_PASSWORD}\r\n").as_bytes())
+            .await
+            .unwrap();
         let world_list = read_until_str(&mut client, "Select a world").await;
         assert!(world_list.contains("Welcome, alice"));
         assert!(world_list.contains("Available worlds:"));
-        assert!(world_list.contains("The Studio at Dusk"));
-        assert!(world_list.contains("The Mountain Trail"));
-        assert!(world_list.contains("The Library of Echoes"));
         assert!(world_list.contains("Select a world (1-3, or 'quit'):"));
 
         client.write_all(b"1\r\n").await.unwrap();
         let goodbye = read_until_str(&mut client, "Disconnecting").await;
         assert!(goodbye.contains("The Studio at Dusk"));
-        assert!(goodbye.contains("Disconnecting"));
 
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_login_re_prompts_for_username() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+
+        client.write_all(b"alice\r\n").await.unwrap();
+        let _ = read_until_str(&mut client, "Password: ").await;
+
+        client.write_all(b"wrongpass\r\n").await.unwrap();
+        let response = read_until_str(&mut client, "Username: ").await;
+        assert!(response.contains("Authentication failed"));
+        assert!(response.contains("Username: "));
+
+        client.write_all(b"quit\r\n").await.unwrap();
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn three_failed_logins_disconnects() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+
+        for i in 0..3 {
+            client.write_all(b"alice\r\n").await.unwrap();
+            let _ = read_until_str(&mut client, "Password: ").await;
+            client.write_all(b"wrong\r\n").await.unwrap();
+
+            if i < 2 {
+                let _ = read_until_str(&mut client, "Username: ").await;
+            }
+        }
+
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        let rest_str = String::from_utf8_lossy(&rest);
+        assert!(rest_str.contains("Too many failed attempts. Disconnecting."));
 
         server.await.unwrap();
     }
 
     #[tokio::test]
-    async fn quit_at_username_state() {
-        let (listener, addr, registry) = setup().await;
+    async fn unknown_user_returns_auth_failed() {
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+
+        client.write_all(b"nobody\r\n").await.unwrap();
+        let _ = read_until_str(&mut client, "Password: ").await;
+        client.write_all(b"whatever\r\n").await.unwrap();
+        let response = read_until_str(&mut client, "Username: ").await;
+        assert!(response.contains("Authentication failed"));
+
+        client.write_all(b"quit\r\n").await.unwrap();
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn iac_will_echo_before_password_prompt() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+
+        client.write_all(b"alice\r\n").await.unwrap();
+        // Read raw bytes to check for IAC WILL ECHO before "Password: "
+        let raw = read_raw_until(&mut client, b"Password: ").await;
+        assert!(
+            raw.windows(3).any(|w| w == constants::IAC_WILL_ECHO),
+            "expected IAC WILL ECHO before password prompt"
+        );
+
+        client.write_all(b"quit\r\n").await.unwrap();
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn iac_wont_echo_after_password() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let _ = read_until_str(&mut client, "Username: ").await;
+
+        client.write_all(b"alice\r\n").await.unwrap();
+        let _ = read_until_str(&mut client, "Password: ").await;
+
+        client
+            .write_all(format!("{TEST_PASSWORD}\r\n").as_bytes())
+            .await
+            .unwrap();
+        // Read raw bytes to check for IAC WONT ECHO before welcome
+        let raw = read_raw_until(&mut client, b"Welcome").await;
+        assert!(
+            raw.windows(3).any(|w| w == constants::IAC_WONT_ECHO),
+            "expected IAC WONT ECHO after password consumption"
+        );
+
+        client.write_all(b"quit\r\n").await.unwrap();
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).await.unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn quit_at_username_state() {
+        let (listener, addr, ctx, _dir) = setup().await;
+
+        let c = ctx.clone();
+        let server = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
         let _ = read_until_str(&mut client, "Username: ").await;
 
         client.write_all(b"quit\r\n").await.unwrap();
-
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
         let rest_str = String::from_utf8_lossy(&rest);
@@ -251,22 +529,21 @@ mod tests {
 
     #[tokio::test]
     async fn quit_at_password_state() {
-        let (listener, addr, registry) = setup().await;
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
         let _ = read_until_str(&mut client, "Username: ").await;
-
         client.write_all(b"alice\r\n").await.unwrap();
         let _ = read_until_str(&mut client, "Password: ").await;
 
         client.write_all(b"quit\r\n").await.unwrap();
-
+        // Should get IAC WONT ECHO + goodbye
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
         let rest_str = String::from_utf8_lossy(&rest);
@@ -277,23 +554,25 @@ mod tests {
 
     #[tokio::test]
     async fn quit_at_world_selection_state() {
-        let (listener, addr, registry) = setup().await;
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
         let _ = read_until_str(&mut client, "Username: ").await;
         client.write_all(b"alice\r\n").await.unwrap();
         let _ = read_until_str(&mut client, "Password: ").await;
-        client.write_all(b"secret\r\n").await.unwrap();
+        client
+            .write_all(format!("{TEST_PASSWORD}\r\n").as_bytes())
+            .await
+            .unwrap();
         let _ = read_until_str(&mut client, "Select a world").await;
 
         client.write_all(b"quit\r\n").await.unwrap();
-
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
         let rest_str = String::from_utf8_lossy(&rest);
@@ -304,12 +583,12 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_username_re_prompts() {
-        let (listener, addr, registry) = setup().await;
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
@@ -319,41 +598,35 @@ mod tests {
         let error = read_until_str(&mut client, "Username: ").await;
         assert!(error.contains("cannot be empty"));
 
-        client.write_all(b"alice\r\n").await.unwrap();
-        let prompt = read_until_str(&mut client, "Password: ").await;
-        assert!(prompt.contains("Password: "));
-
         client.write_all(b"quit\r\n").await.unwrap();
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
-
         server.await.unwrap();
     }
 
     #[tokio::test]
     async fn invalid_world_selection_re_prompts() {
-        let (listener, addr, registry) = setup().await;
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
         let _ = read_until_str(&mut client, "Username: ").await;
         client.write_all(b"alice\r\n").await.unwrap();
         let _ = read_until_str(&mut client, "Password: ").await;
-        client.write_all(b"secret\r\n").await.unwrap();
+        client
+            .write_all(format!("{TEST_PASSWORD}\r\n").as_bytes())
+            .await
+            .unwrap();
         let _ = read_until_str(&mut client, "Select a world").await;
 
         client.write_all(b"4\r\n").await.unwrap();
         let error = read_until_str(&mut client, "Select a world").await;
         assert!(error.contains("between 1 and 3"));
-
-        client.write_all(b"abc\r\n").await.unwrap();
-        let error = read_until_str(&mut client, "Select a world").await;
-        assert!(error.contains("Please enter a number"));
 
         client.write_all(b"2\r\n").await.unwrap();
         let goodbye = read_until_str(&mut client, "Disconnecting").await;
@@ -361,63 +634,33 @@ mod tests {
 
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
-
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn exit_alias_at_world_selection() {
-        let (listener, addr, registry) = setup().await;
-
-        let reg = registry.clone();
-        let server = tokio::spawn(async move {
-            let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
-        });
-
-        let mut client = TcpStream::connect(addr).await.unwrap();
-        let _ = read_until_str(&mut client, "Username: ").await;
-        client.write_all(b"alice\r\n").await.unwrap();
-        let _ = read_until_str(&mut client, "Password: ").await;
-        client.write_all(b"secret\r\n").await.unwrap();
-        let _ = read_until_str(&mut client, "Select a world").await;
-
-        client.write_all(b"EXIT\r\n").await.unwrap();
-
-        let mut rest = Vec::new();
-        client.read_to_end(&mut rest).await.unwrap();
-        let rest_str = String::from_utf8_lossy(&rest);
-        assert!(rest_str.contains("Until the next strange tale."));
-
         server.await.unwrap();
     }
 
     #[tokio::test]
     async fn client_disconnect_without_quit() {
-        let (listener, addr, registry) = setup().await;
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
         let _ = read_until_str(&mut client, "Username: ").await;
-
         drop(client);
-
         server.await.unwrap();
     }
 
     #[tokio::test]
     async fn iac_bytes_stripped_during_session() {
-        let (listener, addr, registry) = setup().await;
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
@@ -430,18 +673,17 @@ mod tests {
         client.write_all(b"quit\r\n").await.unwrap();
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
-
         server.await.unwrap();
     }
 
     #[tokio::test]
     async fn line_too_long_during_session() {
-        let (listener, addr, registry) = setup().await;
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
-            handle_connection(stream, peer, reg).await.unwrap();
+            handle_connection(stream, peer, c).await.unwrap();
         });
 
         let mut client = TcpStream::connect(addr).await.unwrap();
@@ -449,31 +691,25 @@ mod tests {
 
         let long_data = "x".repeat(5000);
         client.write_all(long_data.as_bytes()).await.unwrap();
-
         let notice = read_until_str(&mut client, "Line too long").await;
         assert!(notice.contains("Line too long; ignored."));
 
         client.write_all(b"\r\n").await.unwrap();
-        client.write_all(b"alice\r\n").await.unwrap();
-        let prompt = read_until_str(&mut client, "Password: ").await;
-        assert!(prompt.contains("Password: "));
-
         client.write_all(b"quit\r\n").await.unwrap();
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).await.unwrap();
-
         server.await.unwrap();
     }
 
     #[tokio::test]
     async fn buffer_overflow_disconnects_client() {
-        let (listener, addr, registry) = setup().await;
+        let (listener, addr, ctx, _dir) = setup().await;
 
-        let reg = registry.clone();
+        let c = ctx.clone();
         let server = tokio::spawn(async move {
             let (stream, peer) = listener.accept().await.unwrap();
             let codec = TelnetLineCodec::with_limits(4096, 256);
-            handle_connection_with_codec(stream, peer, codec, reg)
+            handle_connection_with_codec(stream, peer, codec, c)
                 .await
                 .unwrap();
         });

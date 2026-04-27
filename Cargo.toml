@@ -24,8 +24,11 @@ tokio-util         = { version = "0.7", features = ["codec"] }
 futures-util       = "0.3"
 uuid               = { version = "1", features = ["v4", "serde"] }
 rusqlite           = { version = "0.39", features = ["bundled"] }
-argon2             = "0.5"
+argon2             = { version = "0.5", features = ["rand"] }
+password-hash      = { version = "0.5", features = ["getrandom"] }
 rpassword          = "7"
+tempfile           = "3"
+time               = { version = "0.3", features = ["formatting"] }
 
 # Internal crate dependencies
 liaozhai-core   = { path = "crates/liaozhai-core" }

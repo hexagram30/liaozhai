@@ -73,6 +73,49 @@ pub const WORLD_SELECTED_TEMPLATE: &str =
 /// World selection prompt template. Replace `{n}` with the registry size.
 pub const WORLD_SELECT_PROMPT_TEMPLATE: &str = "Select a world (1-{n}, or 'quit'): ";
 
+// --- Authentication messages ---
+
+/// Error message for failed authentication (generic; doesn't leak user-exists info).
+pub const AUTH_FAILED_MSG: &str = "Authentication failed.\r\n";
+
+/// Disconnect message after exceeding per-connection retry limit.
+pub const AUTH_MAX_RETRIES_MSG: &str = "Too many failed attempts. Disconnecting.\r\n";
+
+/// Disconnect message when per-IP rate limiter triggers.
+pub const AUTH_RATE_LIMITED_MSG: &str =
+    "Too many failed attempts from your IP. Try again later.\r\n";
+
+/// Error message when `AccountStore` itself errors (rare DB failure).
+pub const AUTH_INTERNAL_ERROR_MSG: &str = "Authentication error. Please try again later.\r\n";
+
+// --- Telnet IAC ECHO negotiation ---
+
+/// IAC WILL ECHO: server takes over echo (client should suppress local echo).
+pub const IAC_WILL_ECHO: &[u8] = &[0xFF, 0xFB, 0x01];
+
+/// IAC WONT ECHO: server stops handling echo (client should resume local echo).
+pub const IAC_WONT_ECHO: &[u8] = &[0xFF, 0xFC, 0x01];
+
+// --- Default auth parameters ---
+
+/// Default maximum login attempts per connection.
+pub const DEFAULT_MAX_LOGIN_ATTEMPTS: u32 = 3;
+
+/// Default argon2 memory cost in KiB (19 MiB, per OWASP 2024).
+pub const DEFAULT_ARGON2_MEMORY_COST: u32 = 19_456;
+
+/// Default argon2 time cost (iterations).
+pub const DEFAULT_ARGON2_TIME_COST: u32 = 2;
+
+/// Default argon2 parallelism (lanes).
+pub const DEFAULT_ARGON2_PARALLELISM: u32 = 1;
+
+/// Default rate-limiter window duration in seconds.
+pub const DEFAULT_RATE_LIMIT_WINDOW_SECS: u64 = 60;
+
+/// Default maximum failures per IP within the rate-limit window.
+pub const DEFAULT_RATE_LIMIT_MAX_FAILURES: usize = 10;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,6 +156,19 @@ mod tests {
         assert!(WORLD_SELECTED_TEMPLATE.contains("{world}"));
         assert!(WORLD_SELECT_PROMPT_TEMPLATE.contains("{n}"));
         assert!(WORLD_SELECTION_OUT_OF_RANGE_MSG.contains("{n}"));
+    }
+
+    #[test]
+    fn iac_echo_sequences_are_3_bytes() {
+        assert_eq!(IAC_WILL_ECHO.len(), 3);
+        assert_eq!(IAC_WONT_ECHO.len(), 3);
+    }
+
+    #[test]
+    fn auth_messages_non_empty() {
+        assert!(!AUTH_FAILED_MSG.is_empty());
+        assert!(!AUTH_MAX_RETRIES_MSG.is_empty());
+        assert!(!AUTH_RATE_LIMITED_MSG.is_empty());
     }
 
     #[test]

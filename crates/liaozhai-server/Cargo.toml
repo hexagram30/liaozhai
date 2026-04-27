@@ -22,6 +22,8 @@ clap.workspace = true
 serde.workspace = true
 toml.workspace = true
 anyhow.workspace = true
+rpassword.workspace = true
+time.workspace = true
 
 [lints]
 workspace = true
